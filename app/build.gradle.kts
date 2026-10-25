@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "vn.nvxconnect"
     compileSdk = 35
-    defaultConfig { applicationId = "vn.nvxconnect"; minSdk = 26; targetSdk = 35; versionCode = 11; versionName = "0.9.0-help-center" }
+    defaultConfig { applicationId = "vn.nvxconnect"; minSdk = 26; targetSdk = 35; versionCode = 12; versionName = "0.10.0-telemetry-verify" }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
