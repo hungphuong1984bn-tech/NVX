@@ -12,6 +12,7 @@ import vn.nvxconnect.auto.*
 import vn.nvxconnect.bluetooth.*
 import vn.nvxconnect.capability.*
 import vn.nvxconnect.protocol.*
+import vn.nvxconnect.telemetry.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -40,6 +41,15 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
     fun resetCalibration(id: String) { calibrator.reset(id); calStatus.value = calibrator.status() }
     private val salt = UUID.randomUUID().toString()
     private val table = DeviceTable()
+    // ---- thu thập/ xác minh telemetry (telemetry/): ghi payload thật, KHÔNG có đường ghi xuống xe ----
+    private val recorder = RawFrameRecorder(anonymize = { SurveyRedactor.address(it, salt) }, anonymizeName = { SurveyRedactor.name(it) }).also { it.start("tự động") }
+    private val evidence = ProtocolEvidenceRepository()
+    val recording = MutableStateFlow(true)
+    val recStats = MutableStateFlow(RecSummary())
+    val fieldVerdicts = MutableStateFlow<List<FieldVerdict>>(emptyList())
+    val toolMessage = MutableStateFlow<String?>(null)
+    val importedAnalysis = MutableStateFlow<String?>(null)
+    data class RecSummary(val payloads: Long = 0, val lastMs: Long? = null, val lastHex: String? = null, val lastChar: String? = null, val dropped: Long = 0, val ignored: Long = 0, val session: String = "")
     private val logBuf = SessionLogBuffer()
     private val rawFrames = ArrayList<RawFrame>()
     private val surveyServices = mutableMapOf<String, List<GattServiceInfo>>()
@@ -129,10 +139,14 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         viewModelScope.launch { linkStatus.collect { telemetry.linkVerified = it.protocolVerified; if (!it.protocolVerified) telemetry.reset() } }
-        viewModelScope.launch { conn.log.collect { record(it) } }
+        viewModelScope.launch { conn.log.collect { record(it); recordReadFromLog(it) } }
+        viewModelScope.launch { conn.state.collect { st -> recordStateEvent(st) } }
+        viewModelScope.launch { conn.mtu.collect { m -> currentAddr?.let { recorder.event(it, ConnEventType.MTU, null, "mtu=$m") } } }
+        viewModelScope.launch { var last = emptyMap<String, SubscriptionState>(); conn.subscriptions.collect { m -> recordSubEvents(last, m); last = m } }
         viewModelScope.launch {
             conn.frames.collect { f ->
                 if (rawFrames.size < 5000) rawFrames += f
+                recordPayload(f)
                 val hex = HexUtil.toHex(f.bytes)
                 record(LogEntry(f.timeMs, LogKind.FRAME, "notify ${f.bytes.size} byte", f.charUuid, conn.state.value.code, hex))
                 val services = (conn.state.value as? ConnState.Ready)?.services ?: emptyList()
@@ -170,6 +184,67 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ---------------------------------------------------------------- thu thập payload có cấu trúc
+    private fun servicesNow(): List<GattServiceInfo> = (conn.state.value as? ConnState.Ready)?.services ?: emptyList()
+    private fun serviceOf(char: String) = servicesNow().firstOrNull { s -> s.characteristics.any { it.uuid.equals(char, true) } }?.uuid
+    private fun recordPayload(f: RawFrame) {
+        val addr = currentAddr ?: return
+        val ch = servicesNow().flatMap { it.characteristics }.firstOrNull { it.uuid.equals(f.charUuid, true) }
+        val src = if (ch != null && ch.canIndicate && !ch.canNotify) PayloadSource.INDICATION else PayloadSource.NOTIFICATION
+        recorder.record(addr, src, serviceOf(f.charUuid), f.charUuid, f.bytes, f.timeMs, rssi.value)?.let { refreshRecStats(it) }
+    }
+    private fun recordReadFromLog(e: LogEntry) {
+        val addr = currentAddr ?: return
+        if (e.kind == LogKind.GATT && e.hex != null && e.uuid != null && e.message.startsWith("Đọc")) {
+            val b = HexUtil.fromHex(e.hex) ?: return
+            recorder.record(addr, PayloadSource.READ, serviceOf(e.uuid), e.uuid, b, e.timeMs)?.let { refreshRecStats(it) }
+        }
+        if (e.kind == LogKind.ERROR && e.message.contains("quá")) recorder.event(addr, ConnEventType.TIMEOUT, e.uuid, e.message, e.timeMs)
+        else if (e.kind == LogKind.ERROR && e.message.startsWith("Đọc thất bại")) recorder.event(addr, ConnEventType.READ_FAILED, e.uuid, e.message, e.timeMs)
+    }
+    private fun recordStateEvent(st: ConnState) {
+        val addr = currentAddr ?: return
+        val t = when (st) {
+            is ConnState.Connecting -> ConnEventType.CONNECT_START
+            is ConnState.Connected -> ConnEventType.CONNECTED
+            is ConnState.Ready -> ConnEventType.DISCOVERY_DONE
+            is ConnState.Reconnecting -> ConnEventType.RECONNECTING
+            is ConnState.Disconnected -> ConnEventType.DISCONNECTED
+            is ConnState.Error -> ConnEventType.ERROR
+            else -> return
+        }
+        recorder.event(addr, t, null, (st as? ConnState.Error)?.reason ?: st.code)
+    }
+    private fun recordSubEvents(old: Map<String, SubscriptionState>, new: Map<String, SubscriptionState>) {
+        val addr = currentAddr ?: return
+        for ((u, st) in new) if (old[u] != st) recorder.event(addr, when (st) { SubscriptionState.PENDING -> ConnEventType.SUBSCRIBE_PENDING; SubscriptionState.ACTIVE -> ConnEventType.SUBSCRIBE_OK; SubscriptionState.FAILED -> ConnEventType.SUBSCRIBE_FAILED }, u)
+        for (u in old.keys - new.keys) recorder.event(addr, ConnEventType.UNSUBSCRIBED, u)
+    }
+    private fun refreshRecStats(r: PayloadRecord?) {
+        val last = r ?: recorder.snapshot().lastOrNull { it.source != PayloadSource.ADVERTISEMENT }
+        recStats.value = RecSummary(recorder.totalPayloads(), recorder.lastPayloadMs, last?.hex?.let { FrameRedactor.hexRedacted(HexUtil.fromHex(it) ?: ByteArray(0)) }, last?.charUuid,
+            recorder.droppedOldest, recorder.ignoredWhileStopped, recorder.sessionId)
+        if (recorder.totalPayloads() % 50L == 0L) evaluateFields()
+    }
+    fun startRecording(label: String) { recorder.start(label.ifBlank { "thủ công" }); recording.value = true; refreshRecStats(null) }
+    fun stopRecording() { recorder.stop(); recording.value = false; refreshRecStats(null) }
+    fun evaluateFields() { fieldVerdicts.value = evidence.evaluateAll(recorder.snapshot(), System.currentTimeMillis()) }
+    private fun anonGatt(): Map<String, List<GattServiceInfo>> = surveyServices.mapKeys { SurveyRedactor.address(it.key, salt) }
+    fun telemetryJson() = TelemetryLogExporter.toJson(recorder, anonGatt(), AppInfo.VERSION, System.currentTimeMillis(), redact = true, salt = salt)
+    fun telemetryCsv() = TelemetryLogExporter.toCsv(recorder, redact = true)
+    fun evidenceMarkdown(): String { evaluateFields(); return TelemetryEvidenceReport.toMarkdown(fieldVerdicts.value) }
+    fun evidenceCsv(): String { evaluateFields(); return TelemetryEvidenceReport.toCsv(fieldVerdicts.value) }
+    /** Nạp log đã xuất (JSON/CSV) để phân tích ngoại tuyến. Chỉ đọc văn bản, không chạm vào kết nối. */
+    fun importLog(text: String) {
+        val log = TelemetryLogImport.parse(text)
+        importedAnalysis.value = OfflineLogAnalyzer.toMarkdown(OfflineLogAnalyzer.analyze(listOf(log), evidence.verifiedCharUuids()))
+        toolMessage.value = "Đã nạp ${log.records.size} payload" + if (log.warnings.isNotEmpty()) " (${log.warnings.size} cảnh báo)" else ""
+    }
+    fun importReference(text: String) {
+        val d = evidence.importReference(text, System.currentTimeMillis()); evaluateFields()
+        toolMessage.value = "Tham chiếu: nhận ${d.samples.size} mẫu, bỏ ${d.warnings.size} dòng" + (d.warnings.firstOrNull()?.let { " — $it" } ?: "")
+    }
+
     // ---------------------------------------------------------------- quét
     /**
      * Quét quảng bá. label != null: đây là một PHIÊN KHẢO SÁT (xe tắt/bật), kết quả được lưu để xếp hạng ứng viên.
@@ -191,7 +266,7 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
                     sessionList += ScanSession(++sessionSeq, label, startedMs, seen.toList()); scanSessions.value = sessionList.toList()
                 }
                 note(LogKind.SCAN, "Đã dừng quét (${table.size()} thiết bị)")
-            }.collect { table.update(it); rows.value = table.rows(System.currentTimeMillis()); if (label != null && seen.size < 20_000) seen += it }
+            }.collect { recorder.recordAdvert(it); table.update(it); rows.value = table.rows(System.currentTimeMillis()); if (label != null && seen.size < 20_000) seen += it }
         }
     }
     fun stopScan() { scanJob?.cancel() }
@@ -341,6 +416,7 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
     fun exportCsv() = LogExporter.toCsv(logBuf.snapshot(), salt, redact = true)
     fun analysisText() = FrameAnalyzer.render(FrameAnalyzer.analyze(rawFrames))
     fun clearLog() {
+        recorder.clear(); recStats.value = RecSummary(); fieldVerdicts.value = emptyList()
         logBuf.clear(); rawFrames.clear(); events.value = emptyList(); frameLines.value = emptyList(); frameCount.value = 0
         actionTags.clear(); tagCounts.value = emptyMap(); segments.clear(); currentSegment = null; segmentNames.value = emptyList(); activeSegment.value = null
         findings.value = emptyList(); valueSeen.value = false; gpsSpeeds.clear()

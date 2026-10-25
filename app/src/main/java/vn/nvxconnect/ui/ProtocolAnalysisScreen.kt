@@ -61,7 +61,7 @@ fun ProtocolAnalysisScreen(ble: BleViewModel, onBack: () -> Unit, onOpenCapabili
         Text(status.headline, style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.CenterHorizontally))
         status.detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
-        Segmented(listOf("Tổng quan", "Log", "Chi tiết"), tab) { tab = it }
+        Segmented(listOf("Tổng quan", "Log", "Chi tiết", "Xác minh"), tab) { tab = it }
         when (tab) {
             0 -> {
                 if (ycc.valid + ycc.invalid > 0) Panel {
@@ -132,7 +132,7 @@ fun ProtocolAnalysisScreen(ble: BleViewModel, onBack: () -> Unit, onOpenCapabili
                 DisclosureHeader("Gói dữ liệu (HEX)", "${frames.size} dòng gần nhất", showHex) { showHex = !showHex }
                 if (showHex) Panel { frames.takeLast(50).reversed().forEach { Text(it, style = MaterialTheme.typography.labelSmall) } }
             }
-            else -> {
+            2 -> {
                 val ins = inspector
                 if (ins == null) EmptyState("Chưa có phiên GATT")
                 else {
@@ -148,6 +148,7 @@ fun ProtocolAnalysisScreen(ble: BleViewModel, onBack: () -> Unit, onOpenCapabili
                     }
                 }
             }
+            else -> VerificationTab(ble)
         }
         OutlinedButton(onClick = onOpenCapabilities, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Danh mục chức năng xe/app · đối chiếu") }
         if (state.isActive) OutlinedButton(onClick = { ble.disconnect() }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Ngắt kết nối") }
