@@ -55,6 +55,19 @@ object YccFrames {
     private val EXPECTED_LEN = mapOf(T_HELLO to 8, T_BLOCK to 77, T_INFO to 74, T_STATUS to 59, T_PARAMS to 143)
 }
 
+/**
+ * Tự bật nghe (ghi CCCD) kênh notify của UART trên thiết bị YCC ngay khi dịch vụ sẵn sàng.
+ * Lý do (log 2026-10-25): bắt buộc người dùng bấm "Nghe" làm mất 11–44 s dữ liệu đầu mỗi phiên; xe phát gói ngay khi CCCD được ghi.
+ * Chỉ trả về characteristic có NOTIFY nằm trong service Nordic-UART; KHÔNG bao giờ trả về characteristic ghi (6e400002).
+ */
+object YccAutoListen {
+    fun pick(services: List<vn.nvxconnect.bluetooth.GattServiceInfo>): List<String> =
+        services.filter { it.uuid.equals(YccFrames.SERVICE_NUS, ignoreCase = true) }
+            .flatMap { it.characteristics }
+            .filter { it.uuid.equals(YccFrames.CHAR_NOTIFY, ignoreCase = true) && it.canNotify }
+            .map { it.uuid }
+}
+
 class YccTlv(val group: Int, val id: Int, val data: ByteArray) {
     val key get() = (group shl 8) or id
     /** Byte 0xFE = "không có dữ liệu" theo quan sát (CHƯA xác minh ý nghĩa). */

@@ -33,7 +33,9 @@ class AndroidGattPort(private val context: Context) : GattPort {
 
     private fun adapter(): BluetoothAdapter? = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
 
-    override fun open(address: String): PortOpen {
+    override fun open(address: String): PortOpen = open(address, false)
+
+    override fun open(address: String, background: Boolean): PortOpen {
         val a = adapter() ?: return PortOpen.Failed(ErrorKind.BLUETOOTH_UNSUPPORTED, "Thiết bị không hỗ trợ Bluetooth")
         if (!a.isEnabled) return PortOpen.Failed(ErrorKind.BLUETOOTH_OFF, "Bluetooth đang tắt. Hãy bật Bluetooth rồi thử lại.")
         if (!BlePermissions.hasConnect(context)) return PortOpen.Failed(ErrorKind.PERMISSION_DENIED, "Chưa cấp quyền Thiết bị ở gần (BLUETOOTH_CONNECT).")
@@ -43,7 +45,7 @@ class AndroidGattPort(private val context: Context) : GattPort {
         registerReceivers()
         val my: Int
         synchronized(lock) { releaseLocked(); my = ++token }
-        val g = try { dev.connectGatt(context, false, callbackFor(my), BluetoothDevice.TRANSPORT_LE) }
+        val g = try { dev.connectGatt(context, background, callbackFor(my), BluetoothDevice.TRANSPORT_LE) }
         catch (e: SecurityException) { return PortOpen.Failed(ErrorKind.PERMISSION_DENIED, "Thiếu quyền kết nối Bluetooth: ${e.message}") }
         if (g == null) return PortOpen.Failed(ErrorKind.GATT_ERROR, "Android không tạo được phiên GATT")
         synchronized(lock) { if (token == my) { if (gatt == null) gatt = g } else safeClose(g) }
@@ -167,7 +169,8 @@ class BleVehicleConnection private constructor(
     companion object {
         fun create(context: Context, scope: CoroutineScope): BleVehicleConnection {
             val port = AndroidGattPort(context.applicationContext)
-            return BleVehicleConnection(port, GattSessionController(port, scope))
+            // Chế độ xe: nối lại không giới hạn + tự bật nghe kênh notify của UART (xem docs/KET_NOI_THAT.md).
+            return BleVehicleConnection(port, GattSessionController(port, scope, ReconnectPolicy.vehicle(), autoListen = YccAutoListen::pick))
         }
     }
 }

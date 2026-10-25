@@ -14,15 +14,21 @@ import vn.nvxconnect.domain.DataSource
 import vn.nvxconnect.location.TripPhase
 import java.io.File
 
+/** Trang cuộn dọc. Trên màn hình rộng, nội dung được giới hạn bề rộng và căn giữa (không kéo giãn chữ ra hai mép). */
 @Composable
-internal fun Page(title: String?, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) =
-    Column(Modifier.fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (title != null) Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.headlineSmall)
-            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+internal fun Page(title: String?, subtitle: String? = null, content: @Composable ColumnScope.() -> Unit) {
+    val layout = rememberLayoutInfo()
+    Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = layout.contentMaxWidth).fillMaxSize().statusBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (title != null) Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.headlineSmall)
+                if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            content()
         }
-        content()
     }
+}
 
 /** Chia sẻ văn bản dạng tệp qua FileProvider (không cắt cụt như gửi chuỗi trực tiếp). */
 object ShareFiles {

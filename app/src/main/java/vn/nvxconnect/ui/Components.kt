@@ -111,7 +111,7 @@ internal fun toneColor(t: Tone): Color = when (t) {
     val on = if (dim) NvxColors.Neutral else NvxColors.Primary
     Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.Bottom) {
         for (i in 1..4) Box(Modifier.width(4.dp).height((4 + i * 4).dp).clip(RoundedCornerShape(1.dp))
-            .background(if (i <= level) on else Color(0x33FFFFFF)))
+            .background(if (i <= level) on else NvxColors.Outline))
     }
 }
 
@@ -125,7 +125,7 @@ internal fun toneColor(t: Tone): Color = when (t) {
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(Modifier.size(26.dp).clip(CircleShape).background(if (done) c else Color.Transparent).border(2.dp, c, CircleShape),
                     contentAlignment = Alignment.Center) {
-                    Text(if (done) "\u2713" else "${i + 1}", color = if (done) Color.White else c, style = MaterialTheme.typography.labelMedium)
+                    Text(if (done) "\u2713" else "${i + 1}", color = if (done) MaterialTheme.colorScheme.onPrimary else c, style = MaterialTheme.typography.labelMedium)
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(label, maxLines = 1, style = MaterialTheme.typography.labelSmall,

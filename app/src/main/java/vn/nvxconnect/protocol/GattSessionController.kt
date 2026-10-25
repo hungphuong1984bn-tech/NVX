@@ -26,7 +26,9 @@ class GattSessionController(
     private val preferredMtu: Int = 247,
     private val rssiPollMs: Long = 3_000,
     private val opTimeoutMs: Long = 5_000,
-    private val clock: () -> Long = System::currentTimeMillis
+    private val clock: () -> Long = System::currentTimeMillis,
+    /** Characteristic cần tự bật nghe ngay khi Ready (chỉ NOTIFY/INDICATE; mặc định không tự nghe gì). */
+    private val autoListen: (List<GattServiceInfo>) -> List<String> = { emptyList() }
 ) : VehicleConnection, GattEvents {
 
     private val lock = Any()
@@ -45,8 +47,17 @@ class GattSessionController(
     private val _info = MutableStateFlow<Map<String, String>>(emptyMap())
     override val deviceInfo: StateFlow<Map<String, String>> = _info.asStateFlow()
 
+    private val _hint = MutableStateFlow(LinkHint.NONE)
+    override val hint: StateFlow<LinkHint> = _hint.asStateFlow()
+
     private var address: String? = null
     private var attempt = 0
+    /** Số gói notify nhận được trong phiên GATT hiện tại; 0 = xe chưa phát gì. */
+    private var sessionFrames = 0L
+    /** Đã từng Ready (thấy xe) kể từ lần connect() do người dùng yêu cầu. */
+    private var everReady = false
+    /** Characteristic người dùng chủ động tắt nghe: không tự bật lại. */
+    private val userOff = HashSet<String>()
     @Volatile private var userStopped = false
     private var timeoutJob: Job? = null
     private var retryJob: Job? = null
@@ -86,6 +97,7 @@ class GattSessionController(
         }
         cancelTimers()
         userStopped = false; attempt = 0; this.address = address
+        sessionFrames = 0; everReady = false; userOff.clear(); _hint.value = LinkHint.NONE
         desired.clear(); _subs.value = emptyMap(); _info.value = emptyMap()
         open()
     }
@@ -93,7 +105,7 @@ class GattSessionController(
     override fun disconnect() = synchronized(lock) {
         userStopped = true
         cancelTimers(); teardown()
-        desired.clear(); _subs.value = emptyMap()
+        desired.clear(); _subs.value = emptyMap(); _hint.value = LinkHint.NONE
         setState(ConnState.Disconnected, "Người dùng ngắt kết nối")
     }
 
@@ -102,6 +114,7 @@ class GattSessionController(
         val ch = findChar(charUuid) ?: return@synchronized false
         if (!ch.canSubscribe) return@synchronized false
         val u = norm(ch.uuid)
+        userOff -= u
         desired += u; setSub(u, SubscriptionState.PENDING)
         enqueueCccd(u, true)
         true
@@ -111,7 +124,7 @@ class GattSessionController(
         if (_state.value !is ConnState.Ready) return@synchronized false
         val ch = findChar(charUuid) ?: return@synchronized false
         val u = norm(ch.uuid)
-        desired -= u
+        desired -= u; userOff += u
         enqueueCccd(u, false)
         true
     }
@@ -133,17 +146,23 @@ class GattSessionController(
     private fun open() {
         val addr = address ?: return
         teardown()
-        setState(if (attempt == 0) ConnState.Connecting else ConnState.Reconnecting(attempt, policy.maxAttempts),
-            if (attempt == 0) "Bắt đầu kết nối" else "Kết nối lại lần $attempt/${policy.maxAttempts}")
-        when (val r = port.open(addr)) {
+        setState(if (attempt == 0 && !everReady) ConnState.Connecting else ConnState.Reconnecting(attempt, policy.reportedMax),
+            if (attempt == 0 && !everReady) "Bắt đầu kết nối" else "Kết nối lại lần $attempt/${if (policy.persistent) "∞" else policy.maxAttempts.toString()}")
+        // Chế độ xe: sau BACKGROUND_AFTER lần không thấy xe (khóa điện tắt → xe không quảng bá) chuyển sang kết nối NỀN của Android:
+        // hệ thống tự nối ngay khi xe quảng bá lại (bật khóa), không có khoảng hở giữa các lần thử, không còn hết giờ.
+        val background = policy.persistent && attempt >= BACKGROUND_AFTER
+        when (val r = port.open(addr, background)) {
             is PortOpen.Failed -> { failNow(r.kind, r.reason); return }
             PortOpen.Started -> {}
         }
-        timeoutJob = scope.launch { delay(connectTimeoutMs); onConnectTimeout() }
+        if (background) emitLog(LogKind.INFO, "Chờ xe ở chế độ kết nối nền (tự nối khi bật khóa điện)")
+        else timeoutJob = scope.launch { delay(connectTimeoutMs); onConnectTimeout() }
     }
 
     private fun onConnectTimeout() = synchronized(lock) {
         if (userStopped || _state.value is ConnState.Ready) return@synchronized
+        // Đã từng thấy xe trong lần này → nhiều khả năng khóa điện vừa tắt; chưa từng thấy → có thể xe ngoài tầm/đang bị app khác giữ.
+        _hint.value = if (everReady) LinkHint.WAITING_IGNITION else LinkHint.NOT_IN_RANGE
         fail(-1, "Hết thời gian chờ kết nối (${connectTimeoutMs / 1000}s)", ErrorKind.TIMEOUT)
     }
 
@@ -161,14 +180,17 @@ class GattSessionController(
             setError(ErrorKind.AUTH_REQUIRED, "$reason — ${GattStatus.describe(status)}. App không ghép nối/xác thực thay Y-Connect.")
             return
         }
-        val d = policy.nextDelayMs(attempt)
+        // Xe tự ngắt (19) nghĩa là xe đang ở ngay đó: thử lại ngay (log thật: nối lại ~1,9 s) và không tính vào số lần thất bại.
+        val remoteDrop = policy.persistent && status == GattStatus.REMOTE_TERMINATED
+        if (remoteDrop) attempt = 0
+        val d = if (remoteDrop) REMOTE_DROP_RETRY_MS else policy.nextDelayMs(attempt)
         if (d == null) {
             val finalKind = if (kind == ErrorKind.TIMEOUT || GattStatus.looksLikeOutOfRange(status)) ErrorKind.OUT_OF_RANGE else kind
             setError(finalKind, "$reason (đã thử $attempt lần). Thiết bị có thể ngoài phạm vi, đang tắt, hoặc đang được ứng dụng khác (Y-Connect) giữ kết nối.")
             return
         }
         attempt++
-        setState(ConnState.Reconnecting(attempt, policy.maxAttempts), "$reason; thử lại sau $d ms (lần $attempt/${policy.maxAttempts})")
+        setState(ConnState.Reconnecting(attempt, policy.reportedMax), "$reason; thử lại sau $d ms (lần $attempt/${if (policy.persistent) "∞" else policy.maxAttempts.toString()})")
         retryJob = scope.launch {
             delay(d)
             synchronized(lock) { if (!userStopped && _state.value is ConnState.Reconnecting) open() }
@@ -278,6 +300,10 @@ class GattSessionController(
             }
             val msg = "Mất kết nối: ${GattStatus.describe(status)}"
             emitLog(LogKind.GATT, msg)
+            // Bằng chứng log 2026-10-25: xe tự ngắt (19) ~29,3 s sau READY khi khóa điện tắt (0 gói); khi bật khóa giữ liên kết và phát gói.
+            if (status == GattStatus.REMOTE_TERMINATED || (everReady && kind == ErrorKind.TIMEOUT)) _hint.value = LinkHint.WAITING_IGNITION
+            else if (!everReady && kind == ErrorKind.TIMEOUT) _hint.value = LinkHint.NOT_IN_RANGE
+            sessionFrames = 0
             fail(status, msg, kind)
         } else {
             fail(status, "Kết nối lỗi: ${GattStatus.describe(status)}", ErrorKind.GATT_ERROR)
@@ -295,10 +321,17 @@ class GattSessionController(
         done("discover")
         if (status != 0) { fail(status, "Khám phá dịch vụ lỗi: ${GattStatus.describe(status)}", ErrorKind.SERVICE_DISCOVERY_FAILED); return@synchronized }
         timeoutJob?.cancel(); attempt = 0
+        sessionFrames = 0; everReady = true
         this.services = services
         setState(ConnState.Ready(services), "Sẵn sàng: ${services.size} service, ${services.sumOf { it.characteristics.size }} characteristic")
         if (services.isEmpty()) emitLog(LogKind.INFO, "Thiết bị không công bố service nào")
         startRssiPoll()
+        // Tự bật nghe kênh notify của xe: không bắt người dùng bấm "Nghe" (log thật: bấm tay làm mất 11–44 s dữ liệu đầu).
+        val auto = runCatching { autoListen(services) }.getOrDefault(emptyList())
+        val all = services.flatMap { it.characteristics }
+        auto.map { norm(it) }.filter { it !in userOff && it !in desired }.forEach { u ->
+            if (all.firstOrNull { norm(it.uuid) == u }?.canSubscribe == true) { desired += u; setSub(u, SubscriptionState.PENDING) }
+        }
         desired.toList().forEach { enqueueCccd(it, true) }
     }
 
@@ -332,6 +365,7 @@ class GattSessionController(
     }
 
     override fun onNotification(charUuid: String, value: ByteArray) {
+        synchronized(lock) { if (sessionFrames++ == 0L) _hint.value = LinkHint.STREAMING }
         _frames.tryEmit(RawFrame(clock(), charUuid, value.copyOf()))
     }
 
@@ -343,5 +377,12 @@ class GattSessionController(
                 setError(ErrorKind.BLUETOOTH_OFF, "Bluetooth đã bị tắt khi đang kết nối. Bật lại rồi bấm kết nối.")
             }
         } else emitLog(LogKind.INFO, "Bluetooth đã bật")
+    }
+
+    private companion object {
+        /** Sau chừng này lần thử trực tiếp không thấy xe thì chuyển sang kết nối nền (chỉ chế độ xe). */
+        const val BACKGROUND_AFTER = 3
+        /** Nghỉ ngắn trước khi nối lại sau khi xe tự ngắt, đủ để Android giải phóng phiên cũ. */
+        const val REMOTE_DROP_RETRY_MS = 500L
     }
 }

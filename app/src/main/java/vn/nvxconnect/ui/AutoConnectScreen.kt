@@ -98,7 +98,7 @@ fun AutoConnectScreen(app: AppViewModel, ble: BleViewModel, onBack: () -> Unit, 
             if (scanning) OutlinedButton(onClick = { ble.stopScan() }, modifier = Modifier.fillMaxWidth().height(52.dp)) { Text("Dừng") }
             else PrimaryActionButton("Bắt đầu khảo sát (20 giây)", startSurvey, enabled = !busy)
             Button(onClick = { ble.emergencyStop() }, modifier = Modifier.fillMaxWidth().height(48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = NvxColors.Danger, contentColor = Color.White)) { Text("DỪNG KHẨN CẤP (đóng quét và GATT)") }
+                colors = ButtonDefaults.buttonColors(containerColor = NvxColors.Danger, contentColor = NvxColors.OnDanger)) { Text("DỪNG KHẨN CẤP (đóng quét và GATT)") }
             Text("Cách dùng: đặt điện thoại gần xe, quét 1 phiên lúc khóa điện TẮT, rồi 1–2 phiên lúc khóa điện BẬT. Thiết bị chỉ xuất hiện khi xe bật và lặp lại sẽ được xếp cao hơn.",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

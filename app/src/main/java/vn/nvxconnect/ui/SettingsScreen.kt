@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -15,7 +16,15 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun SettingsScreen(app: AppViewModel, ble: BleViewModel, nav: NavViewModel, onBack: () -> Unit, onOpenTft: () -> Unit = {}, onOpenHelp: (String?) -> Unit = {}) {
+fun SettingsScreen(app: AppViewModel, ble: BleViewModel, nav: NavViewModel, onBack: () -> Unit, onOpenTft: () -> Unit = {}, onOpenHelp: (String?) -> Unit = {}, onOpenLab: () -> Unit = {}) {
+    val nvx = LocalContext.current.applicationContext as vn.nvxconnect.NvxApp
+    val pro by nvx.proPrefs.state.collectAsState()
+    val recording by ble.recording.collectAsState()
+    var fuelPrice by remember(pro.fuelPriceVnd) { mutableStateOf(if (pro.fuelPriceVnd > 0) pro.fuelPriceVnd.toString() else "") }
+    var consumption by remember(pro.consumptionL100) { mutableStateOf(if (pro.consumptionL100 > 0) pro.consumptionL100.toString() else "") }
+    var costSaved by remember { mutableStateOf(false) }
+    var confirmClearLog by remember { mutableStateOf(false) }
+    var removeTarget by remember { mutableStateOf<vn.nvxconnect.bluetooth.SavedDevice?>(null) }
     val ctx = LocalContext.current
     val s by app.settings.collectAsState()
     val voice by nav.voiceStatus.collectAsState()
@@ -30,6 +39,63 @@ fun SettingsScreen(app: AppViewModel, ble: BleViewModel, nav: NavViewModel, onBa
     Page(null) {
         AppTopBar("Cài đặt", onBack = onBack)
         VehicleSummaryCard(s.vehicle.model, s.vehicle.variant, if (saved.isEmpty()) "Chưa lưu xe nào" else "${saved.size} thiết bị đã lưu")
+        Panel {
+            Section("Giao diện")
+            Text("Chủ đề", style = MaterialTheme.typography.titleSmall)
+            ChipRow(vn.nvxconnect.pro.ThemeMode.values().map { it.title }, vn.nvxconnect.pro.ThemeMode.values().indexOf(pro.theme)) { i -> nvx.proPrefs.update { it.copy(theme = vn.nvxconnect.pro.ThemeMode.values()[i]) } }
+            Text("Tối là mặc định. \"Theo hệ thống\" đổi theo chế độ tối/sáng của điện thoại.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Panel {
+            Section("Cockpit và biểu đồ")
+            Text("Chu kỳ cập nhật giao diện", style = MaterialTheme.typography.titleSmall)
+            ChipRow(vn.nvxconnect.pro.ProSettings.REFRESH_CHOICES.map { if (it >= 1000) "${it / 1000} giây" else "$it ms" }, vn.nvxconnect.pro.ProSettings.REFRESH_CHOICES.indexOf(pro.uiRefreshMs)) { i -> nvx.proPrefs.update { it.copy(uiRefreshMs = vn.nvxconnect.pro.ProSettings.REFRESH_CHOICES[i]) } }
+            Text("Chỉ ảnh hưởng tần suất VẼ LẠI. Gói dữ liệu vẫn được ghi theo tần suất xe gửi. Dữ liệu xe cập nhật theo chu kỳ của xe (thường vài lần mỗi giây); 500 ms là đủ cho dữ liệu này, chu kỳ ngắn hơn tốn pin hơn.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LabeledSwitch("Cockpit tương phản cao", pro.cockpitHighContrast) { v -> nvx.proPrefs.update { it.copy(cockpitHighContrast = v) } }
+            Text("Ô số liệu hiển thị trên Cockpit", style = MaterialTheme.typography.titleSmall)
+            vn.nvxconnect.pro.CockpitMetric.values().filter { it != vn.nvxconnect.pro.CockpitMetric.GPS_SPEED }.forEach { m ->
+                LabeledSwitch(m.title, m.key !in pro.cockpitHidden) { on -> nvx.proPrefs.update { st -> st.copy(cockpitHidden = if (on) st.cockpitHidden - m.key else st.cockpitHidden + m.key) } }
+            }
+        }
+        Panel {
+            Section("Chi phí hành trình")
+            Text("Số do bạn nhập, dùng để ƯỚC TÍNH chi phí từ quãng đường GPS. Không phải số đo của xe.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedTextField(fuelPrice, { fuelPrice = it.filter(Char::isDigit).take(7); costSaved = false }, label = { Text("Giá xăng (đ/lít)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(consumption, { consumption = it.replace(',', '.').filter { c -> c.isDigit() || c == '.' }.take(5); costSaved = false }, label = { Text("Mức tiêu thụ (lít/100 km)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = { nvx.proPrefs.update { it.copy(fuelPriceVnd = fuelPrice.toIntOrNull() ?: 0, consumptionL100 = consumption.toDoubleOrNull() ?: 0.0) }; costSaved = true }, Modifier.heightIn(min = 48.dp)) { Text("Lưu") }
+                if (costSaved) Text("Đã lưu", color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        Panel {
+            Section("Log và phiên")
+            Text("Số payload tối đa giữ trong bộ nhớ", style = MaterialTheme.typography.titleSmall)
+            ChipRow(vn.nvxconnect.pro.ProSettings.LOG_CHOICES.map { "%,d".format(it) }, vn.nvxconnect.pro.ProSettings.LOG_CHOICES.indexOf(pro.logMaxRecords)) { i -> nvx.proPrefs.update { it.copy(logMaxRecords = vn.nvxconnect.pro.ProSettings.LOG_CHOICES[i]) } }
+            Text("Áp dụng khi mở lại ứng dụng. Khi đầy, bản ghi cũ nhất bị cắt và được báo trong Protocol Lab (không cắt âm thầm).", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if (recording) "Đang ghi phiên ${ble.recorderSessionId()}" else "Đã dừng ghi", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (recording) OutlinedButton(onClick = { ble.stopRecording() }, Modifier.heightIn(min = 48.dp)) { Text("Dừng ghi") } else Button(onClick = { ble.startRecording("thủ công") }, Modifier.heightIn(min = 48.dp)) { Text("Phiên mới") }
+                OutlinedButton(onClick = { confirmClearLog = true }, Modifier.heightIn(min = 48.dp)) { Text("Xóa log phiên") }
+            }
+            OutlinedButton(onClick = onOpenLab, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Nhập log / xuất báo cáo (Protocol Lab)") }
+        }
+        Panel {
+            Section("Thiết bị đã lưu")
+            if (saved.isEmpty()) Text("Chưa lưu thiết bị nào. Lưu từ Protocol Lab → BLE Scanner hoặc Tự tìm và kết nối xe.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            saved.forEach { d ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f)) { Text(d.title, style = MaterialTheme.typography.bodyMedium); if (d.preferred) Text("Thiết bị ưu tiên (tự kết nối)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary) }
+                    OutlinedButton(onClick = { ble.togglePreferred(d) }, Modifier.heightIn(min = 44.dp)) { Text(if (d.preferred) "Bỏ ưu tiên" else "Ưu tiên") }
+                    TextButton(onClick = { removeTarget = d }) { Text("Xóa") }
+                }
+            }
+        }
+        Panel {
+            Section("Phiên bản và hồ sơ")
+            Text("Ứng dụng ${AppInfo.VERSION}", style = MaterialTheme.typography.bodyMedium)
+            val evs = nvx.adapters.evidences()
+            Text(if (evs.isEmpty()) "Decoder giao thức xe: chưa có (không có adapter nào được xác minh)." else "Decoder: " + evs.joinToString { "${it.id} (${it.protocolVersion})" }, style = MaterialTheme.typography.bodySmall)
+            Text("Hồ sơ xe: ${s.vehicle.model} ${s.vehicle.variant} · ${s.vehicle.engineCc} cc (do bạn nhập)", style = MaterialTheme.typography.bodySmall)
+        }
         Panel {
             LabeledSwitch("Kết nối tự động", s.autoConnect) { app.setAutoConnect(it) }
             Text("Tự động tìm và kết nối xe đã lưu khi ở gần.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -102,6 +168,8 @@ fun SettingsScreen(app: AppViewModel, ble: BleViewModel, nav: NavViewModel, onBa
                     "Ứng dụng độc lập, không liên kết với Yamaha. Không dùng thay biển báo giao thông.", style = MaterialTheme.typography.bodySmall)
         }
     }
+    if (confirmClearLog) ConfirmDialog("Xóa log phiên?", "Payload đã ghi, nhật ký và kết quả phân tích sẽ bị xóa khỏi bộ nhớ.", "Xóa", { confirmClearLog = false; ble.clearLog() }, { confirmClearLog = false })
+    removeTarget?.let { d -> ConfirmDialog("Xóa thiết bị đã lưu?", "${d.title} sẽ bị bỏ khỏi danh sách đã lưu (không ảnh hưởng ghép đôi của hệ thống).", "Xóa", { removeTarget = null; ble.removeSaved(d.address) }, { removeTarget = null }) }
     if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false },
         confirmButton = { TextButton(onClick = { confirmDelete = false; app.deleteAllData() }) { Text("Xóa hết") } },
         dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Hủy") } },

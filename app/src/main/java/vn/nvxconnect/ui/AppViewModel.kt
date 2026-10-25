@@ -32,6 +32,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     val message = MutableStateFlow<String?>(null)
     val replay = MutableStateFlow<Replay?>(null)
+    /** Chuỗi nạp từ tệp CSV của Telemetry Center để PHÁT LẠI. Tách khỏi dữ liệu trực tiếp; không bao giờ ghi vào lịch sử trực tiếp. */
+    val replaySeries = MutableStateFlow<Map<String, List<vn.nvxconnect.pro.Sample>>>(emptyMap())
 
     init {
         viewModelScope.launch {
@@ -62,6 +64,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         replay.value = Replay(t, pts, TripStats.compute(pts))
     }
     fun closeReplay() { replay.value = null }
+    /** Xóa nhiều chuyến (đã được người dùng xác nhận ở giao diện). Chuyến đang xem lại cũng bị đóng nếu nằm trong danh sách. */
+    fun deleteTrips(ids: List<Long>) = viewModelScope.launch {
+        ids.forEach { dao.deletePoints(it); dao.deleteTrip(it) }
+        if (replay.value?.trip?.id in ids) replay.value = null
+        message.value = "Đã xóa ${ids.size} hành trình"
+    }
     fun deleteTrip(id: Long) = viewModelScope.launch { dao.deletePoints(id); dao.deleteTrip(id); if (replay.value?.trip?.id == id) replay.value = null }
 
     // ---------------------------------------------------------------- cài đặt
@@ -125,7 +133,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteAllData() = viewModelScope.launch {
         nvx.navSession.end(); engine.stop()
         dao.deleteEverything(); repo.clearAll(); replay.value = null
-        nvx.helpProgress.reset(); nvx.vehicleData.clear()
+        nvx.helpProgress.reset(); nvx.vehicleData.clear(); nvx.history.clear(); nvx.proPrefs.clear()
         message.value = "Đã xóa toàn bộ dữ liệu trong ứng dụng"
     }
 }

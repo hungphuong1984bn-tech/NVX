@@ -28,22 +28,31 @@ data class VehicleLinkStatus(
     companion object {
         const val RAW_ONLY = "CONNECTED — RAW DATA ONLY"
         const val NOT_VERIFIED = "VEHICLE PROTOCOL NOT VERIFIED"
+        const val STREAMING_UNVERIFIED = "ĐANG NHẬN DỮ LIỆU TỪ XE (ƯỚC TÍNH)"
 
         /**
          * Quy tắc: "CONNECTED" chỉ xuất hiện khi trạng thái là READY (GATT đã nối và khám phá xong dịch vụ).
          * Dù READY, nếu chưa có adapter đã xác minh thì vẫn ghi RAW DATA ONLY + VEHICLE PROTOCOL NOT VERIFIED:
          * kết nối GATT tới một thiết bị không chứng minh đó là bộ điều khiển của xe.
          */
-        fun resolve(state: ConnState, registry: AdapterRegistry): VehicleLinkStatus = when (state) {
+        fun resolve(state: ConnState, registry: AdapterRegistry, hint: LinkHint = LinkHint.NONE): VehicleLinkStatus = when (state) {
             is ConnState.Disconnected -> VehicleLinkStatus(LinkLevel.NOT_CONNECTED, "CHƯA KẾT NỐI", null, false)
             is ConnState.Connecting, is ConnState.Connected, is ConnState.DiscoveringServices ->
                 VehicleLinkStatus(LinkLevel.CONNECTING, "ĐANG KẾT NỐI…", state.code, false)
-            is ConnState.Reconnecting ->
-                VehicleLinkStatus(LinkLevel.CONNECTING, "ĐANG KẾT NỐI LẠI ${state.attempt}/${state.maxAttempts}", null, false)
+            // maxAttempts = 0: chế độ xe, nối lại không giới hạn. Nói rõ LÝ DO (khóa điện tắt) thay vì báo lỗi.
+            is ConnState.Reconnecting -> if (state.maxAttempts == 0) when (hint) {
+                LinkHint.WAITING_IGNITION -> VehicleLinkStatus(LinkLevel.CONNECTING, "CHỜ BẬT KHÓA ĐIỆN",
+                    "Xe chỉ giữ liên kết và phát dữ liệu khi bật khóa điện. App tự nối lại, không cần thao tác.", false)
+                LinkHint.NOT_IN_RANGE -> VehicleLinkStatus(LinkLevel.CONNECTING, "ĐANG TÌM XE",
+                    "Chưa thấy xe: bật khóa điện, lại gần xe, và tắt Y-Connect nếu đang chạy. App tự nối khi xe xuất hiện.", false)
+                else -> VehicleLinkStatus(LinkLevel.CONNECTING, "ĐANG KẾT NỐI LẠI…", null, false)
+            } else VehicleLinkStatus(LinkLevel.CONNECTING, "ĐANG KẾT NỐI LẠI ${state.attempt}/${state.maxAttempts}", null, false)
             is ConnState.Error -> VehicleLinkStatus(LinkLevel.ERROR, "LỖI KẾT NỐI", state.reason, false)
             is ConnState.Ready -> {
                 val a = registry.find(state.services)
                 if (a != null) VehicleLinkStatus(LinkLevel.VERIFIED, "CONNECTED — ${a.evidence.id}", null, true)
+                else if (hint == LinkHint.STREAMING) VehicleLinkStatus(LinkLevel.RAW_DATA_ONLY, STREAMING_UNVERIFIED,
+                    "Đang nhận gói thật từ xe. Số liệu là ƯỚC TÍNH, giao thức chưa được xác minh bằng đồng hồ xe/vạn năng.", false)
                 else VehicleLinkStatus(LinkLevel.RAW_DATA_ONLY, RAW_ONLY, NOT_VERIFIED, false)
             }
         }

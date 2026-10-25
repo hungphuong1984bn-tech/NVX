@@ -16,6 +16,11 @@ interface GattPort {
     var events: GattEvents?
     /** Mở phiên GATT mới; phiên cũ (nếu còn) phải được đóng. */
     fun open(address: String): PortOpen
+    /**
+     * [background] = true: kết nối nền (Android autoConnect) — hệ thống tự nối ngay khi xe phát quảng bá lại (bật khóa điện),
+     * không bị giới hạn thời gian chờ. Mặc định rơi về [open] thường để các cổng giả không phải đổi.
+     */
+    fun open(address: String, background: Boolean): PortOpen = open(address)
     fun requestMtu(mtu: Int): Boolean
     fun discoverServices(): Boolean
     fun readRssi(): Boolean

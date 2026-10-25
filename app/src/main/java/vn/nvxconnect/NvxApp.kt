@@ -35,6 +35,13 @@ class NvxApp : Application() {
     val helpProgress by lazy { vn.nvxconnect.helpcenter.HelpProgressTracker(vn.nvxconnect.data.PrefsHelpProgressStore(this)) }
     /** Giá trị ỨNG VIÊN (giả thuyết) từ kênh YCC; tách khỏi [telemetry], không bao giờ là LIVE_VERIFIED. */
     val yccCandidates by lazy { vn.nvxconnect.protocol.YccCandidateHub() }
+    /** Cấu hình giao diện Pro (chủ đề, cockpit, chu kỳ vẽ, giá nhiên liệu...). Đồng bộ để áp dụng ngay khi mở app. */
+    val proPrefs by lazy { vn.nvxconnect.data.ProPrefs(this) }
+    /**
+     * Lịch sử mẫu THẬT cho Telemetry Center. Chỉ nhận giá trị đã có sẵn ở [telemetry] (đã xác minh), [yccCandidates] (GIẢ THUYẾT, khóa "cand:")
+     * và tốc độ GPS ("gps:speed"). Không nội suy, không sinh số. Tần suất ghi tách khỏi tần suất vẽ và tần suất log gói.
+     */
+    val history by lazy { vn.nvxconnect.pro.SeriesStore(maxPerSeries = 3_600, minIntervalMs = 250L) }
     val tftPipeline by lazy { vn.nvxconnect.protocol.TftDisplayPipeline { navAdapters.resolve() } }
 
     val tripEngine by lazy {
@@ -59,7 +66,21 @@ class NvxApp : Application() {
         appScope.launch { settingsRepo.settings.collect { latest = it; tripEngine.speedLimitKmh = it.speedLimitKmh } }
         appScope.launch { while (isActive) { delay(1000); tickTft() } }
         navSession // bắt đầu lắng nghe sự kiện ngay từ khi mở app
+        startHistoryCollectors()
         appScope.launch(Dispatchers.IO) { runCatching { RoomTripStore(db.dao()).recoverUnfinished() } }
+    }
+
+    /** Ghi lịch sử mẫu thật cho biểu đồ. Chạy trên Dispatchers.Default để không chiếm main thread. */
+    private fun startHistoryCollectors() {
+        appScope.launch(Dispatchers.Default) {
+            telemetry.state.collect { t -> for ((p, v) in t.values) history.add("veh:" + p.name, v.timeMs, v.value) }
+        }
+        appScope.launch(Dispatchers.Default) {
+            yccCandidates.state.collect { m -> for ((id, c) in m) history.add("cand:$id", c.timeMs, c.value) }
+        }
+        appScope.launch(Dispatchers.Default) {
+            tripEngine.lastFix.collect { p -> if (p != null && p.accuracyM <= 50f && p.speedMps.isFinite()) history.add("gps:speed", p.timeMs, p.speedMps * 3.6) }
+        }
     }
 
     /** Mỗi giây: chỉ khi CÓ adapter TFT đã xác minh mới dựng khung và gửi. Hiện không có adapter nên không làm gì. */

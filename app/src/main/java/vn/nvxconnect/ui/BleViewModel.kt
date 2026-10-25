@@ -13,6 +13,12 @@ import vn.nvxconnect.bluetooth.*
 import vn.nvxconnect.capability.*
 import vn.nvxconnect.protocol.*
 import vn.nvxconnect.telemetry.*
+import vn.nvxconnect.diagnostics.DiagnosticsInput
+import vn.nvxconnect.diagnostics.DiagnosticsReport
+import vn.nvxconnect.helpcenter.ChecklistInputs
+import vn.nvxconnect.helpcenter.ConnectionChecklist
+import vn.nvxconnect.tftintegration.TftIntegrationInputs
+import vn.nvxconnect.tftintegration.TftIntegrationManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,7 +48,7 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
     private val salt = UUID.randomUUID().toString()
     private val table = DeviceTable()
     // ---- thu thập/ xác minh telemetry (telemetry/): ghi payload thật, KHÔNG có đường ghi xuống xe ----
-    private val recorder = RawFrameRecorder(anonymize = { SurveyRedactor.address(it, salt) }, anonymizeName = { SurveyRedactor.name(it) }).also { it.start("tự động") }
+    private val recorder = RawFrameRecorder(maxRecords = getApplication<NvxApp>().proPrefs.value.logMaxRecords, anonymize = { SurveyRedactor.address(it, salt) }, anonymizeName = { SurveyRedactor.name(it) }).also { it.start("tự động") }
     private val evidence = ProtocolEvidenceRepository()
     val recording = MutableStateFlow(true)
     val recStats = MutableStateFlow(RecSummary())
@@ -81,7 +87,8 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
     val mtu = conn.mtu
     val subscriptions = conn.subscriptions
     val deviceInfo = conn.deviceInfo
-    val linkStatus: StateFlow<VehicleLinkStatus> = conn.state.map { VehicleLinkStatus.resolve(it, registry) }
+    val linkHint = conn.hint
+    val linkStatus: StateFlow<VehicleLinkStatus> = combine(conn.state, conn.hint) { st, h -> VehicleLinkStatus.resolve(st, registry, h) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, VehicleLinkStatus.resolve(ConnState.Disconnected, registry))
 
     private val rows = MutableStateFlow<List<DeviceTable.Row>>(emptyList())
@@ -244,6 +251,34 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
         val d = evidence.importReference(text, System.currentTimeMillis()); evaluateFields()
         toolMessage.value = "Tham chiếu: nhận ${d.samples.size} mẫu, bỏ ${d.warnings.size} dòng" + (d.warnings.firstOrNull()?.let { " — $it" } ?: "")
     }
+
+
+    // ---------------------------------------------------------------- dữ liệu cho Protocol Lab / Diagnostics Center (chỉ ĐỌC trạng thái đã có)
+    /** Bản sao các payload đã ghi (đã ẩn danh thiết bị). Có thể lớn: gọi trên Dispatchers.Default, không gọi trên main thread. */
+    fun payloadSnapshot(): List<PayloadRecord> = recorder.snapshot()
+    fun connEventsSnapshot(): List<ConnEvent> = recorder.eventsSnapshot()
+    fun streamStatsSnapshot(): Map<StreamKey, StreamStats> = recorder.streamStats()
+    fun recorderSessionId(): String = recorder.sessionId
+    fun recorderSessionLabel(): String = recorder.sessionLabel
+    fun logEntriesSnapshot(): List<LogEntry> = logBuf.snapshot()
+
+    private fun diagnosticsInput(): DiagnosticsInput {
+        val nvx = getApplication<NvxApp>(); val now = System.currentTimeMillis()
+        val st = conn.state.value; val link = linkStatus.value
+        val bridge = nvx.navAdapters.resolve()
+        val checklist = ConnectionChecklist.evaluate(ChecklistInputs(
+            blockers = runCatching { BlePreflight.check(nvx) }.getOrNull(), deviceFound = totalSeen.value > 0, conn = st, link = link,
+            verifiedValueSeen = valueSeen.value, tftStatus = bridge.status))
+        val supported = (st as? ConnState.Ready)?.let { registry.find(it.services)?.supportedParams }
+        val values = vehicleData.snapshot(link.protocolVerified, supported, now)
+        val tft = TftIntegrationManager.evaluate(TftIntegrationInputs(st, link, valueSeen.value, bridge,
+            navRunningOnPhone = nvx.tripEngine.nav.value != null, lastOutcome = nvx.tftPipeline.last.value))
+        return DiagnosticsInput(AppInfo.VERSION, android.os.Build.VERSION.SDK_INT, now, checklist, values, tft, logBuf.snapshot(), salt)
+    }
+    /** Gói hỗ trợ kỹ thuật: MAC trong văn bản tự do đã được che; không có tọa độ GPS, VIN hay dữ liệu hành trình. */
+    fun diagnosticsJson(): String = DiagnosticsReport.toJson(diagnosticsInput())
+    fun diagnosticsCsv(): String = DiagnosticsReport.toCsv(diagnosticsInput())
+    fun diagnosticsChecklist() = diagnosticsInput().checklist
 
     // ---------------------------------------------------------------- quét
     /**

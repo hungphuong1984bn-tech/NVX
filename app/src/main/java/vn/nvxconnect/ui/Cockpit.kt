@@ -63,7 +63,7 @@ import kotlinx.coroutines.delay
 /** Nút chính: cao ≥ 56dp, có trạng thái đang xử lý. */
 @Composable internal fun PrimaryActionButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, loading: Boolean = false) =
     Button(onClick = onClick, enabled = enabled && !loading, modifier = modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(NvxRadius.lg)) {
-        if (loading) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White); Spacer(Modifier.width(8.dp)) }
+        if (loading) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)) }
         Text(text, style = MaterialTheme.typography.titleMedium, maxLines = 1)
     }
 
@@ -169,7 +169,7 @@ import kotlinx.coroutines.delay
             NavigationBarItem(selected = selected == i, onClick = { onSelect(i) },
                 icon = { Icon(icons[i], contentDescription = t) },
                 label = { Text(t, style = MaterialTheme.typography.labelSmall, maxLines = 1) },
-                colors = NavigationBarItemDefaults.colors(selectedIconColor = Color.White, selectedTextColor = NvxColors.Primary,
+                colors = NavigationBarItemDefaults.colors(selectedIconColor = NvxColors.OnPrimaryDeep, selectedTextColor = NvxColors.Primary,
                     indicatorColor = NvxColors.PrimaryDeep, unselectedIconColor = NvxColors.TextSecondary, unselectedTextColor = NvxColors.TextSecondary))
         }
     }
