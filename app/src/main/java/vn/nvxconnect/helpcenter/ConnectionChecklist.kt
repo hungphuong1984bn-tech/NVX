@@ -77,7 +77,7 @@ object ConnectionChecklist {
                 is ConnState.Error -> CheckStatus.FAILED; else -> CheckStatus.PENDING },
             when (c) { is ConnState.Ready, is ConnState.Connected, is ConnState.DiscoveringServices -> "Liên kết GATT đã thiết lập"
                 is ConnState.Error -> "${c.kind.title}: ${c.reason}"
-                is ConnState.Reconnecting -> "Đang kết nối lại ${c.attempt}/${c.maxAttempts}"
+                is ConnState.Reconnecting -> if (c.maxAttempts == 0) "Đang chờ xe (tự nối lại, không giới hạn)" else "Đang kết nối lại ${c.attempt}/${c.maxAttempts}"
                 is ConnState.Connecting -> "Đang kết nối…"; ConnState.Disconnected -> "Chưa kết nối" })
         add(CheckStep.SERVICES_DISCOVERED,
             if (c is ConnState.Ready) CheckStatus.PASSED else CheckStatus.PENDING,

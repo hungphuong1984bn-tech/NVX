@@ -4,6 +4,8 @@ package vn.nvxconnect.bluetooth
 object GattStatus {
     const val AUTH_REQUIRED = 5
     const val ENCRYPTION_REQUIRED = 15
+    /** GATT_CONN_TERMINATE_PEER_USER: phía xe chủ động cắt liên kết. */
+    const val REMOTE_TERMINATED = 19
 
     fun describe(status: Int): String = when (status) {
         0 -> "Thành công"
