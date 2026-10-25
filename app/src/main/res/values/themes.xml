@@ -2,7 +2,7 @@
 <resources>
     <!-- Nền tối ngay từ lúc khởi động để không nháy trắng; giao diện chính do Compose vẽ. -->
     <style name="Theme.NvxConnect" parent="@android:style/Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#050B1A</item>
+        <item name="android:windowBackground">#0A0D12</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
