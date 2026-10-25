@@ -105,3 +105,8 @@ Schema Room giữ version 1 (chỉ thêm truy vấn).
 - Mới: Trung tâm hướng dẫn (14 bài, tìm kiếm, tiến độ, kiểm tra từng bước), VehicleDataRepository (trạng thái/khoảng hợp lệ/nhật ký nguồn), TftIntegrationManager + NavigationIntegrationAdapter, DiagnosticsReport.
 - Sửa: cờ "đã có dữ liệu" chỉ đặt khi kho dữ liệu thật sự nhận giá trị; chip TFT "Đã gửi" không còn tông xanh; xóa dữ liệu gồm tiến độ hướng dẫn.
 - 296 test JVM đạt. Gradle/APK chưa chạy được (xem IMPLEMENTATION_REPORT.md).
+
+## 0.10.0-telemetry-verify (2026-10-25)
+- `telemetry/`: RawFrameRecorder, log JSON/CSV `/3` (xuất + nhập, cả `/2`), OfflineLogAnalyzer, TelemetryValidationEngine, ProtocolEvidenceRepository, báo cáo bằng chứng. 55 test mới.
+- Tab "Xác minh" trong Phân tích giao thức (chưa biên dịch Compose). `tools/analyze-log.sh` phân tích ngoại tuyến.
+- Không đổi giao thức, không ghi xuống xe, không trường nào VERIFIED.

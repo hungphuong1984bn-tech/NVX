@@ -51,3 +51,6 @@ chứng đầy đủ (docs/PROTOCOL_EVIDENCE_TEMPLATE.md), do người, không p
 - Thêm nhãn ENCRYPTED_OR_AUTHENTICATED (dấu hiệu, không phải kết luận) và trạng thái BONDED tách khỏi AUTHENTICATED: bonding chỉ là ghép đôi BLE.
 - Thêm danh mục chức năng xe/app và bảng đối chiếu (`capability/`); mặc định mọi chức năng xe là UNKNOWN.
 - Nguồn công khai mới tra cứu: xem PROTOCOL_RESEARCH.md. Chưa có nguồn nào cho NVX.
+
+## 0.10.0-telemetry-verify (2026-10-25)
+Bảng trên ĐÃ LỖI THỜI từ 2026-10-23: kênh YCC (Nordic UART) đã bắt được khung thật; xem `YCC_PROTOCOL_FINDINGS.md`, `BLE_PROTOCOL_AUDIT.md`, `TELEMETRY_FIELD_EVIDENCE.md`. Không trường nào VERIFIED/CORRELATED.

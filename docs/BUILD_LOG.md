@@ -32,3 +32,9 @@ Không có Android SDK (ANDROID_HOME trống) và không có Gradle. Vì vậy K
 - Toolchain thay thế: kotlinc 2.0.21 + android.jar API 34 (GitHub), JUnit 4.13.2 + Hamcrest 2.2 (apt). Lưu ý: `hamcrest-core.jar` của apt là gói chuyển tiếp rỗng; dùng `hamcrest-2.2.jar`.
 - `tools/verify-jvm.sh`: type-check OK; **296 test đạt** (baseline 233).
 - Chưa kiểm bằng trình biên dịch: `HelpCenterScreen.kt` và chỉnh sửa Compose ở Connect/AutoConnect/Vehicle/Tft/Settings/Analysis/MainActivity.
+
+---
+# Lần chạy 2026-10-25 (0.10.0-telemetry-verify)
+- Gradle/Maven/Google vẫn không truy cập được; không có APK. Toolchain thay thế: kotlinc 2.0.21 (GitHub), android.jar API 34 (GitHub), JUnit 4.13.2 + hamcrest-2.2 (apt).
+- `tools/verify-jvm.sh`: type-check OK; **351 test đạt** (baseline 296). `tools/analyze-log.sh` chạy được trên mẫu trong `docs/samples/`.
+- Chưa kiểm bằng trình biên dịch: `VerificationTab.kt`, chỉnh sửa `ProtocolAnalysisScreen.kt` và toàn bộ Compose/Room/osmdroid.
