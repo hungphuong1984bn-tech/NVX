@@ -1,3 +1,21 @@
+# 0.12.0-live — Kết nối thật (2026-10-25)
+
+Dựa trên 2 log thật của NVX 155 V3 SP (`nvx-ble-log-20261025-190509`, `-194402`; 6.616 gói, 0 gói sai tổng kiểm 0x6B/0x6C). Chi tiết bằng chứng: `docs/KET_NOI_THAT.md`.
+- **Nguyên nhân "không kết nối thật"** (từ log, không phải giả định): xe tự ngắt (status 19) ~29,3 s sau READY ở 23/25 lần ngắt (0 gói) khi khóa điện TẮT, và app (a) chỉ thử lại 5 lần rồi báo lỗi, (b) không tự bật nghe, người dùng phải bấm "Nghe" (log 2: mất 43,5 s đầu), (c) hết giờ 15 s rồi bỏ khi xe không quảng bá. Khi bật khóa điện, liên kết giữ 133 s/355 s và phát ~18 gói/s mà app KHÔNG cần ghi gì vào xe.
+- `ReconnectPolicy.vehicle()`: nối lại KHÔNG giới hạn (lùi tối đa 4 s). Xe tự ngắt (19) → thử lại sau 0,5 s, không tính là thất bại. Xác thực/mã hóa (5/15) vẫn DỪNG, không vượt qua.
+- Sau 3 lần không thấy xe → **kết nối nền** (Android autoConnect, không hết giờ): bật khóa điện là tự nối.
+- `YccAutoListen`: tự bật nghe `6e400003` (chỉ NOTIFY trong service Nordic-UART) ngay khi READY và sau mỗi lần nối lại; người dùng tắt nghe thì không tự bật lại. KHÔNG ghi vào `6e400002`.
+- `LinkHint` (STREAMING / WAITING_IGNITION / NOT_IN_RANGE) + thông điệp rõ: "CHỜ BẬT KHÓA ĐIỆN", "ĐANG TÌM XE", "ĐANG NHẬN DỮ LIỆU TỪ XE (ƯỚC TÍNH)" thay vì lỗi. Vẫn `protocolVerified = false`: số liệu chưa được xác minh bằng đồng hồ xe/vạn năng.
+- Test 436 → 446 (`LiveLinkTest` tái hiện hành vi trong log). Type-check lớp Android với android.jar API 34: sạch. Compose/Gradle/điện thoại thật: CHƯA chạy.
+
+# 0.11.0-pro — NVX Connect Pro (UI/UX)
+
+- Hệ thống thiết kế mới (Design.kt): dark than chì + cyan (mặc định), light thiết kế riêng, chọn Tối/Sáng/Theo hệ thống; token spacing/shape; bố cục responsive (giới hạn bề rộng, chia cột trên màn hình rộng/xoay ngang).
+- Điều hướng 5 tab: Trang chủ, Cockpit, Telemetry, Hành trình, Công cụ (Protocol Lab, Chẩn đoán, Cài đặt + các màn hình cũ). Back xác định, trạng thái điều hướng lưu qua xoay màn hình, mỗi tab giữ trạng thái riêng. Một ViewModel/phiên BLE duy nhất.
+- Màn hình mới: Cockpit (tốc độ GPS, vòng đo, toàn màn hình, tương phản cao, tùy chỉnh ô), Telemetry Center (biểu đồ thật, thu phóng, vùng chọn, khoảng trống, CSV lưu/phát lại), Diagnostics Center, Protocol Lab 9 tab, Ride Center, Trang chủ Pro.
+- Logic thuần mới (package `pro`) có test: ProNav, ChartMath/SeriesStore, HexDiff, PacketFilter, CockpitModel, RideTools, LabStatus, ProSettings, DiagnosticsModel, SeriesCsv.
+- Không đổi giao thức, không thêm quyền, không thêm thư viện. Xem docs/PRO_UPGRADE_REPORT.md.
+
 # CHANGELOG
 
 ## 0.8.0-ycc-calibration (2026-10-24)
