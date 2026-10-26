@@ -1,3 +1,12 @@
+# 0.13.0-live — Kết nối nền + thu thập không âm thầm mất gói (2026-10-26)
+Chi tiết, danh sách lỗi và quy trình thử xe thật: `docs/HANDOVER_0.13.md`. Chưa thử xe thật; Gradle/Compose chưa chạy.
+- Phiên GATT chuyển sang `NvxApp.vehicleConnection` (ViewModel không còn đóng phiên); thêm `VehicleConnectionService` (foreground `connectedDevice`) + quyền `FOREGROUND_SERVICE_CONNECTED_DEVICE`.
+- Đường thu thập: `FrameSink` → `FrameIngress` (hàng đợi giới hạn, đếm mọi gói bị bỏ) → `FrameWriter` → `DurableFrameLog` (CRC, fsync, sửa đuôi ghi dở, xoay vòng, kiểm tra dung lượng). Xuất CSV/JSON Lines.
+- Sửa: Bluetooth tắt lúc bấm kết nối không bao giờ tự nối lại; callback muộn (`onServices`, `onDescriptorWrite`, `onMtu`) làm sai trạng thái; `characteristic.value` không sao chép (API<33); `onNotification` giữ khóa chính.
+- Nối lại có rung ±20%; lịch sử mất kết nối; bảng "Giám sát kết nối" (4 mức tách bạch).
+- Sửa lỗi biên dịch CI: thiếu import `rememberSaveable` trong `CockpitScreen.kt`.
+- Test 446 → 485 (`CapturePipelineTest`, `LinkResilienceTest`). Kiểm đột biến: 3/3 bị test bắt.
+
 # 0.12.0-live — Kết nối thật (2026-10-25)
 
 Dựa trên 2 log thật của NVX 155 V3 SP (`nvx-ble-log-20261025-190509`, `-194402`; 6.616 gói, 0 gói sai tổng kiểm 0x6B/0x6C). Chi tiết bằng chứng: `docs/KET_NOI_THAT.md`.
