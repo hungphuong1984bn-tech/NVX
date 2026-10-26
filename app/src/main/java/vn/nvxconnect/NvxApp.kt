@@ -42,6 +42,17 @@ class NvxApp : Application() {
      * và tốc độ GPS ("gps:speed"). Không nội suy, không sinh số. Tần suất ghi tách khỏi tần suất vẽ và tần suất log gói.
      */
     val history by lazy { vn.nvxconnect.pro.SeriesStore(maxPerSeries = 3_600, minIntervalMs = 250L) }
+    // ---- kết nối xe + thu thập dữ liệu: phạm vi TIẾN TRÌNH (không thuộc Activity/ViewModel) để tiếp tục khi tắt màn hình ----
+    /** Phạm vi cho GATT, hàng đợi ghi và dịch vụ nền. Dispatchers.Default: không chiếm luồng chính. */
+    val linkScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /** Đường thu thập gói: hàng đợi có giới hạn → ghi lô xuống tệp bền vững ở filesDir/capture (không có MAC). */
+    val capture by lazy { vn.nvxconnect.telemetry.CapturePipeline(java.io.File(filesDir, "capture"), linkScope) }
+    /** DUY NHẤT một phiên GATT cho cả ứng dụng (ViewModel chỉ quan sát/điều khiển, không tự tạo phiên). */
+    val vehicleConnection by lazy { vn.nvxconnect.protocol.BleVehicleConnection.create(this, linkScope, capture) }
+    val sessionIntent by lazy { vn.nvxconnect.service.SessionIntentStore(this) }
+    val vehicleServiceHost by lazy { vn.nvxconnect.service.VehicleServiceHost(this, vehicleConnection, linkScope, sessionIntent) }
+    /** Lần chạy trước kết thúc khi vẫn đang muốn kết nối (tiến trình bị hệ điều hành tắt, hoặc người dùng vuốt tắt app). */
+    val previousSessionUnclean: Boolean get() = sessionIntent.previousSessionUnclean
     val tftPipeline by lazy { vn.nvxconnect.protocol.TftDisplayPipeline { navAdapters.resolve() } }
 
     val tripEngine by lazy {
@@ -66,6 +77,7 @@ class NvxApp : Application() {
         appScope.launch { settingsRepo.settings.collect { latest = it; tripEngine.speedLimitKmh = it.speedLimitKmh } }
         appScope.launch { while (isActive) { delay(1000); tickTft() } }
         navSession // bắt đầu lắng nghe sự kiện ngay từ khi mở app
+        sessionIntent; vehicleServiceHost.start()   // đọc cờ "phiên trước bị dừng" TRƯỚC khi ghi đè, rồi theo dõi trạng thái để bật/tắt dịch vụ nền
         startHistoryCollectors()
         appScope.launch(Dispatchers.IO) { runCatching { RoomTripStore(db.dao()).recoverUnfinished() } }
     }
