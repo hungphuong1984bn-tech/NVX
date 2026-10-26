@@ -28,7 +28,10 @@ import java.util.UUID
 class BleViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = getApplication<NvxApp>().settingsRepo
     private val scanner = BleScanner(app)
-    private val conn = BleVehicleConnection.create(app, viewModelScope)
+    /** Phiên GATT dùng chung toàn app (thuộc NvxApp, sống ngoài Activity). ViewModel chỉ quan sát/điều khiển, KHÔNG tạo/đóng phiên. */
+    private val conn = getApplication<NvxApp>().vehicleConnection
+    private val capture = getApplication<NvxApp>().capture
+    private val serviceHost = getApplication<NvxApp>().vehicleServiceHost
     private val registry = getApplication<NvxApp>().adapters // dùng chung toàn app; rỗng cho tới khi có bằng chứng giao thức
     private val telemetry = getApplication<NvxApp>().telemetry
     private val vehicleData = getApplication<NvxApp>().vehicleData
@@ -61,7 +64,7 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
     private val surveyServices = mutableMapOf<String, List<GattServiceInfo>>()
     private val actionTags = ArrayList<CorrelationEngine.Tag>()
     private val gpsSpeeds = ArrayList<SpeedSample>()
-    private var currentAddr: String? = null
+    private var currentAddr: String? = conn.address   // gắn lại phiên đang chạy khi Activity được tạo mới
     private var scanJob: Job? = null
     private var autoTried = false
 
@@ -321,6 +324,48 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
     fun unsubscribe(uuid: String) { if (!conn.unsubscribe(uuid)) note(LogKind.ERROR, "Không ngừng nghe được $uuid") }
     fun readInfo(uuid: String) { if (!conn.readStandardInfo(uuid)) note(LogKind.ERROR, "Không đọc được $uuid") }
 
+    // ---------------------------------------------------------------- giám sát thời gian thực + xuất thu thập bền vững
+    val captureStats = capture.stats
+    val backgroundService = serviceHost.status
+    val previousSessionUnclean: Boolean = getApplication<NvxApp>().previousSessionUnclean
+    private val ticker = flow { while (true) { emit(System.currentTimeMillis()); kotlinx.coroutines.delay(1000) } }
+    val monitor: StateFlow<MonitorSnapshot> = combine(
+        listOf(conn.state, conn.hint, conn.rssi, conn.mtu, conn.subscriptions, conn.deviceInfo, conn.readySinceNs, conn.linkHistory, conn.diagnostics,
+            capture.stats, yccStats, fieldVerdicts, serviceHost.status, ticker)
+    ) { a ->
+        @Suppress("UNCHECKED_CAST")
+        val ycc = a[10] as YccLinkMonitor.Stats
+        @Suppress("UNCHECKED_CAST")
+        val verdicts = a[11] as List<FieldVerdict>
+        val svc = a[12] as vn.nvxconnect.service.ServiceStatus
+        @Suppress("UNCHECKED_CAST")
+        val info = a[5] as Map<String, String>
+        LinkMonitorModel.build(MonitorInput(
+            state = a[0] as ConnState, hint = a[1] as LinkHint, rssi = a[2] as Int?, mtu = a[3] as Int,
+            subscriptions = a[4] as Map<String, SubscriptionState>, deviceLabel = currentAddr?.let { SurveyRedactor.address(it, salt) },
+            deviceName = info.entries.firstOrNull { it.key.startsWith("Tên thiết bị") }?.value?.takeIf { it.isNotBlank() },
+            readySinceNs = a[6] as Long?, nowNs = System.nanoTime(), nowMs = a[13] as Long,
+            capture = a[9] as CaptureStats, history = a[7] as List<LinkEvent>, diag = a[8] as LinkDiagnostics,
+            invalidFrames = ycc.invalid, counterGaps = ycc.counterGaps,
+            verifiedFields = verdicts.count { it.status == VerificationStatus.VERIFIED },
+            hypothesisFields = verdicts.count { it.status == VerificationStatus.DECODED_HYPOTHESIS || it.status == VerificationStatus.CORRELATED },
+            backgroundService = when (svc.state) {
+                vn.nvxconnect.service.ServiceState.RUNNING -> "Đang chạy nền (dịch vụ foreground)"
+                vn.nvxconnect.service.ServiceState.STARTING -> "Đang bật dịch vụ nền…"
+                vn.nvxconnect.service.ServiceState.DENIED -> "Bị từ chối: ${svc.reason ?: "không rõ"} — kết nối có thể dừng khi tắt màn hình"
+                vn.nvxconnect.service.ServiceState.STOPPED -> null }))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LinkMonitorModel.build(MonitorInput(ConnState.Disconnected, LinkHint.NONE, null, 23, emptyMap(), null, null, null, 0, 0,
+        CaptureStats(), emptyList(), LinkDiagnostics(), 0, 0, 0, 0, null)))
+
+    /** Xuất toàn bộ nhật ký thu thập bền vững (đọc từ đĩa, tuần tự). Chạy trên Dispatchers.IO. Trả số gói và cảnh báo. */
+    suspend fun exportCapture(csv: Boolean, out: java.io.OutputStream): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val flushed = capture.drain()
+        val rep = if (csv) CaptureExport.csv(capture.log, out)
+            else CaptureExport.jsonl(capture.log, out, mapOf("app" to AppInfo.VERSION, "session" to capture.sessionId), capture.stats.value)
+        "Đã xuất ${rep.frames} gói" + (if (!flushed) " (CÒN gói chưa kịp ghi xuống bộ nhớ)" else "") +
+            (if (rep.corruptLines > 0) ", ${rep.corruptLines} dòng hỏng bị bỏ" else "") + (if (rep.duplicates > 0) ", ${rep.duplicates} dòng trùng bị loại" else "")
+    }
+
     // ---------------------------------------------------------------- thiết bị đã lưu
     fun save(r: AdvertRecord, alias: String? = null, preferred: Boolean = false) = viewModelScope.launch {
         repo.saveDevices(SavedDeviceCodec.upsert(saved.value, SavedDevice(r.address, r.name, alias?.takeIf { it.isNotBlank() }, r.advertisedServiceUuids,
@@ -451,7 +496,7 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
     fun exportCsv() = LogExporter.toCsv(logBuf.snapshot(), salt, redact = true)
     fun analysisText() = FrameAnalyzer.render(FrameAnalyzer.analyze(rawFrames))
     fun clearLog() {
-        recorder.clear(); recStats.value = RecSummary(); fieldVerdicts.value = emptyList()
+        capture.clearStored(); recorder.clear(); recStats.value = RecSummary(); fieldVerdicts.value = emptyList()
         logBuf.clear(); rawFrames.clear(); events.value = emptyList(); frameLines.value = emptyList(); frameCount.value = 0
         actionTags.clear(); tagCounts.value = emptyMap(); segments.clear(); currentSegment = null; segmentNames.value = emptyList(); activeSegment.value = null
         findings.value = emptyList(); valueSeen.value = false; gpsSpeeds.clear()
@@ -469,5 +514,6 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
     /** Chỉ là gợi ý để người khảo sát tự đối chiếu; không tự gán nhãn trường, không tự chuyển sang VERIFIED. */
     fun correlationText() = CorrelationEngine.render(CorrelationEngine.correlate(rawFrames, actionTags), tagCounts.value)
 
-    override fun onCleared() { autoController.cancel(); bond.stop(); conn.dispose() }
+    /** Không đóng GATT ở đây: phiên thuộc tiến trình và phải sống tiếp khi Activity/ViewModel bị hủy (tắt màn hình, xoay máy...). */
+    override fun onCleared() { autoController.cancel(); bond.stop() }
 }

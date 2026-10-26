@@ -58,6 +58,7 @@ fun ConnectScreen(ble: BleViewModel, onOpenAuto: () -> Unit = {}, onOpenHelp: (S
     val preferred = saved.firstOrNull { it.preferred } ?: saved.firstOrNull()
 
     Page("Kết nối xe", "Bluetooth Low Energy · chỉ đọc/nghe") {
+        LinkMonitorPanel(ble)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             HelpButton({ onOpenHelp(HelpContent.Id.CONNECT_STATES) }, "Hướng dẫn")
             HelpButton({ onOpenHelp(null) }, "Kiểm tra từng bước")

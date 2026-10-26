@@ -28,6 +28,15 @@ sealed interface ConnState {
 
 enum class SubscriptionState { PENDING, ACTIVE, FAILED }
 
+enum class LinkEventKind { ATTEMPT_FAILED, LINK_LOST, USER_DISCONNECT, BLUETOOTH_OFF, BLUETOOTH_RESUMED, AUTH_REQUIRED, READY }
+
+/**
+ * Một mốc trong lịch sử kết nối. [upMs] = thời gian liên kết đã sống (nếu từng Ready) trước khi kết thúc; [status] = mã GATT thô (nếu có).
+ */
+data class LinkEvent(val wallMs: Long, val epoch: Int, val kind: LinkEventKind, val status: Int?, val reason: String, val upMs: Long? = null, val attempt: Int = 0, val framesInSession: Long = 0)
+
+data class LinkDiagnostics(val lateEventsDropped: Long = 0, val uiFramesDropped: Long = 0, val epoch: Int = 0)
+
 /**
  * Gợi ý về LÝ DO liên kết đang thế nào, suy ra từ log thật 2026-10-25 (không phải kết luận về giao thức):
  *  - STREAMING: đã nhận ít nhất một gói notify trong phiên GATT hiện tại.
@@ -56,6 +65,14 @@ interface VehicleConnection {
     val deviceInfo: StateFlow<Map<String, String>>
     /** Gợi ý lý do trạng thái liên kết (xem [LinkHint]). Mặc định NONE cho các cài đặt không theo dõi. */
     val hint: StateFlow<LinkHint> get() = MutableStateFlow(LinkHint.NONE)
+    /** Thiết bị đang được giữ phiên (null nếu chưa/đã ngắt). Để giao diện gắn lại sau khi Activity/ViewModel được tạo mới. */
+    val address: String? get() = null
+    /** Lịch sử các lần mất kết nối/nối lại gần nhất (mới nhất ở cuối, tối đa 100). */
+    val linkHistory: StateFlow<List<LinkEvent>> get() = MutableStateFlow(emptyList())
+    /** Mốc đồng hồ đơn điệu (System.nanoTime) lúc phiên GATT hiện tại đạt Ready; null nếu chưa Ready. */
+    val readySinceNs: StateFlow<Long?> get() = MutableStateFlow(null)
+    /** Số thông báo đến muộn/ngoài phiên bị loại, số gói giao diện không theo kịp (đã vẫn được ghi ở FrameSink). */
+    val diagnostics: StateFlow<LinkDiagnostics> get() = MutableStateFlow(LinkDiagnostics())
 
     /** Chỉ một phiên GATT hoạt động: gọi lại cho cùng thiết bị thì bỏ qua; khác thiết bị thì đóng phiên cũ trước. */
     fun connect(address: String)
@@ -74,8 +91,17 @@ interface VehicleConnection {
  */
 class ReconnectPolicy(
     val maxAttempts: Int = 5, private val baseMs: Long = 1000, private val capMs: Long = 30_000,
-    val persistent: Boolean = false, private val persistentCapMs: Long = 4_000
+    val persistent: Boolean = false, private val persistentCapMs: Long = 4_000,
+    /** 0 = không rung. >0: thời gian chờ thực tế được nhân với (1 ± jitter) để nhiều thiết bị/lần thử không đồng bộ nhau. */
+    val jitter: Double = 0.0
 ) {
+    /** Như [nextDelayMs] nhưng có rung ngẫu nhiên ([random] ∈ [0,1)); không bao giờ dưới 1 ms. */
+    fun nextDelayJitteredMs(attemptsSoFar: Int, random: Double): Long? {
+        val d = nextDelayMs(attemptsSoFar) ?: return null
+        if (jitter <= 0.0) return d
+        return maxOf(1L, (d * (1.0 + jitter * (2.0 * random.coerceIn(0.0, 1.0) - 1.0))).toLong())
+    }
+
     fun nextDelayMs(attemptsSoFar: Int): Long? = when {
         persistent -> minOf(persistentCapMs, baseMs shl minOf(attemptsSoFar, 20))
         attemptsSoFar >= maxAttempts -> null
@@ -86,7 +112,7 @@ class ReconnectPolicy(
 
     companion object {
         /** Chính sách dùng cho xe thật: nối lại mãi mãi. */
-        fun vehicle() = ReconnectPolicy(maxAttempts = 0, baseMs = 1000, capMs = 4_000, persistent = true, persistentCapMs = 4_000)
+        fun vehicle() = ReconnectPolicy(maxAttempts = 0, baseMs = 1000, capMs = 4_000, persistent = true, persistentCapMs = 4_000, jitter = 0.2)
     }
 }
 

@@ -28,7 +28,7 @@ class AndroidGattPort(private val context: Context) : GattPort {
     private var gatt: BluetoothGatt? = null
     private var token = 0
     private var services: List<BluetoothGattService> = emptyList()
-    private var receiversOn = false
+    @Volatile private var receiversOn = false
     private val handler = Handler(Looper.getMainLooper())
 
     private fun adapter(): BluetoothAdapter? = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
@@ -36,13 +36,14 @@ class AndroidGattPort(private val context: Context) : GattPort {
     override fun open(address: String): PortOpen = open(address, false)
 
     override fun open(address: String, background: Boolean): PortOpen {
+        // Đăng ký theo dõi bật/tắt Bluetooth TRƯỚC mọi kiểm tra: nếu Bluetooth đang tắt lúc bấm kết nối thì vẫn nhận được sự kiện "bật lại" để tự nối.
+        registerReceivers()
         val a = adapter() ?: return PortOpen.Failed(ErrorKind.BLUETOOTH_UNSUPPORTED, "Thiết bị không hỗ trợ Bluetooth")
         if (!a.isEnabled) return PortOpen.Failed(ErrorKind.BLUETOOTH_OFF, "Bluetooth đang tắt. Hãy bật Bluetooth rồi thử lại.")
         if (!BlePermissions.hasConnect(context)) return PortOpen.Failed(ErrorKind.PERMISSION_DENIED, "Chưa cấp quyền Thiết bị ở gần (BLUETOOTH_CONNECT).")
         val dev = try { a.getRemoteDevice(address) } catch (e: IllegalArgumentException) {
             return PortOpen.Failed(ErrorKind.INVALID_ADDRESS, "Địa chỉ thiết bị không hợp lệ")
         }
-        registerReceivers()
         val my: Int
         synchronized(lock) { releaseLocked(); my = ++token }
         val g = try { dev.connectGatt(context, background, callbackFor(my), BluetoothDevice.TRANSPORT_LE) }
@@ -79,14 +80,15 @@ class AndroidGattPort(private val context: Context) : GattPort {
         }
         @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
         override fun onCharacteristicRead(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
-            if (Build.VERSION.SDK_INT < 33 && live(g)) events?.onRead(c.uuid.toString(), c.value ?: ByteArray(0), status)
+            if (Build.VERSION.SDK_INT < 33 && live(g)) events?.onRead(c.uuid.toString(), (c.value ?: ByteArray(0)).copyOf(), status)
         }
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
             if (live(g)) events?.onNotification(c.uuid.toString(), value)
         }
         @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
-            if (Build.VERSION.SDK_INT < 33 && live(g)) events?.onNotification(c.uuid.toString(), c.value ?: ByteArray(0))
+            // c.value là bộ đệm dùng chung của characteristic: PHẢI chép ngay, nếu không gói kế tiếp có thể ghi đè trước khi ta xử lý.
+            if (Build.VERSION.SDK_INT < 33 && live(g)) events?.onNotification(c.uuid.toString(), (c.value ?: ByteArray(0)).copyOf())
         }
     }
 
@@ -167,10 +169,10 @@ class BleVehicleConnection private constructor(
     fun dispose() { c.disconnect(); port.dispose() }
 
     companion object {
-        fun create(context: Context, scope: CoroutineScope): BleVehicleConnection {
+        fun create(context: Context, scope: CoroutineScope, sink: FrameSink? = null): BleVehicleConnection {
             val port = AndroidGattPort(context.applicationContext)
-            // Chế độ xe: nối lại không giới hạn + tự bật nghe kênh notify của UART (xem docs/KET_NOI_THAT.md).
-            return BleVehicleConnection(port, GattSessionController(port, scope, ReconnectPolicy.vehicle(), autoListen = YccAutoListen::pick))
+            // Chế độ xe: nối lại không giới hạn (có rung) + tự bật nghe kênh notify của UART (xem docs/KET_NOI_THAT.md).
+            return BleVehicleConnection(port, GattSessionController(port, scope, ReconnectPolicy.vehicle(), autoListen = YccAutoListen::pick, sink = sink))
         }
     }
 }
