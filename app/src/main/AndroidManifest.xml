@@ -23,6 +23,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Giữ kết nối Bluetooth LE với xe khi tắt màn hình: dịch vụ foreground loại connectedDevice (Android 14+ yêu cầu quyền này + BLUETOOTH_CONNECT lúc chạy). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <application
         android:name=".NvxApp"
         android:icon="@mipmap/ic_launcher"
@@ -42,6 +45,11 @@
             android:name=".location.TripService"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <service
+            android:name=".service.VehicleConnectionService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
