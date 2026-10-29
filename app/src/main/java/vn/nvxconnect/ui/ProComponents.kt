@@ -111,7 +111,7 @@ enum class UiState(val label: String, val tone: Tone) {
     SelectionContainer { Text(text, Modifier.padding(10.dp).horizontalScroll(rememberScrollState()), style = NvxMono, color = MaterialTheme.colorScheme.onSurface) }
 }
 
-/** Thẻ chọn một mục trong menu Công cụ / lối tắt Trang chủ. Mọi thẻ đều dẫn tới màn hình CÓ THẬT. */
+/** Thẻ chọn một mục trong lối tắt ở tab Tổng quan. Mọi thẻ đều dẫn tới màn hình CÓ THẬT. */
 @Composable internal fun ShortcutCard(title: String, subtitle: String, onClick: () -> Unit, modifier: Modifier = Modifier) =
     Surface(modifier.heightIn(min = 72.dp).clip(RoundedCornerShape(NvxRadius.md)).clickable(role = Role.Button, onClick = onClick),
         shape = RoundedCornerShape(NvxRadius.md), color = NvxColors.SurfaceHigh, border = androidx.compose.foundation.BorderStroke(1.dp, NvxColors.OutlineSoft)) {

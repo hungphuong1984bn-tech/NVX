@@ -75,7 +75,7 @@ fun TripsScreen(app: AppViewModel, onOpenMap: () -> Unit = {}) {
             Section("Chi phí và năng lượng (ước tính)")
             if (cost == null) {
                 Text("Chưa cấu hình giá nhiên liệu và mức tiêu thụ nên app không ước tính chi phí.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Nhập ở Công cụ → Cài đặt → Chi phí hành trình.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Nhập ở Tổng quan → Cài đặt → Chi phí hành trình.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
                 Text("≈ %.2f lít · ≈ %s".format(cost.liters, RideTools.vnd(cost.vnd)), style = MaterialTheme.typography.titleMedium)
                 Text("Nguồn: ${cost.source}", style = MaterialTheme.typography.labelSmall)

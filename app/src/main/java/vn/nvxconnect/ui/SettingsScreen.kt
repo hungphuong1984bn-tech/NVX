@@ -91,7 +91,7 @@ fun SettingsScreen(app: AppViewModel, ble: BleViewModel, nav: NavViewModel, onBa
         }
         Panel {
             Section("Phiên bản và hồ sơ")
-            Text("Ứng dụng ${AppInfo.VERSION}", style = MaterialTheme.typography.bodyMedium)
+            Text("Ứng dụng ${AppInfo.DISPLAY}", style = MaterialTheme.typography.bodyMedium)
             val evs = nvx.adapters.evidences()
             Text(if (evs.isEmpty()) "Decoder giao thức xe: chưa có (không có adapter nào được xác minh)." else "Decoder: " + evs.joinToString { "${it.id} (${it.protocolVersion})" }, style = MaterialTheme.typography.bodySmall)
             Text("Hồ sơ xe: ${s.vehicle.model} ${s.vehicle.variant} · ${s.vehicle.engineCc} cc (do bạn nhập)", style = MaterialTheme.typography.bodySmall)
@@ -158,7 +158,7 @@ fun SettingsScreen(app: AppViewModel, ble: BleViewModel, nav: NavViewModel, onBa
         }
         Panel {
             Section("Giới thiệu")
-            Text("NVX Connect ${AppInfo.VERSION}", style = MaterialTheme.typography.titleSmall)
+            Text("NVX Connect ${AppInfo.DISPLAY}", style = MaterialTheme.typography.titleSmall)
             TextButton(onClick = { showAbout = !showAbout }) { Text(if (showAbout) "Ẩn giấy phép" else "Nguồn dữ liệu và giấy phép") }
             if (showAbout) Text(
                 "Dữ liệu bản đồ © những người đóng góp OpenStreetMap, giấy phép ODbL (openstreetmap.org/copyright).\n" +

@@ -168,7 +168,7 @@ import kotlinx.coroutines.delay
         labels.forEachIndexed { i, t ->
             NavigationBarItem(selected = selected == i, onClick = { onSelect(i) },
                 icon = { Icon(icons[i], contentDescription = t) },
-                label = { Text(t, style = MaterialTheme.typography.labelSmall, maxLines = 1) },
+                label = { Text(t, style = MaterialTheme.typography.labelSmall, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
                 colors = NavigationBarItemDefaults.colors(selectedIconColor = NvxColors.OnPrimaryDeep, selectedTextColor = NvxColors.Primary,
                     indicatorColor = NvxColors.PrimaryDeep, unselectedIconColor = NvxColors.TextSecondary, unselectedTextColor = NvxColors.TextSecondary))
         }

@@ -22,7 +22,7 @@ import java.util.Locale
  * Chưa có giao thức xe đã xác minh nên bước "Dữ liệu" không bao giờ hoàn tất: app chỉ nhận RAW.
  */
 @Composable
-fun ConnectScreen(ble: BleViewModel, onOpenAuto: () -> Unit = {}, onOpenHelp: (String?) -> Unit = {}) {
+fun ConnectScreen(ble: BleViewModel, onOpenAuto: () -> Unit = {}, onOpenHelp: (String?) -> Unit = {}, onOpenLab: (() -> Unit)? = null) {
     val ctx = LocalContext.current
     val state by ble.connState.collectAsState()
     val link by ble.linkStatus.collectAsState()
@@ -66,6 +66,7 @@ fun ConnectScreen(ble: BleViewModel, onOpenAuto: () -> Unit = {}, onOpenHelp: (S
             FixButton(HelpErrorMapper.forState(state, link), onOpenHelp)
         }
         OutlinedButton(onClick = onOpenAuto, modifier = Modifier.fillMaxWidth()) { Text("Tự tìm và kết nối xe (khảo sát tự động)") }
+        onOpenLab?.let { OutlinedButton(onClick = it, modifier = Modifier.fillMaxWidth()) { Text("Protocol Lab (khảo sát BLE/GATT nâng cao)") } }
         HeroCard {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusDot(toneColor(tone), 12)

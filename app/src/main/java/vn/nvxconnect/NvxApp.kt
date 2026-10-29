@@ -6,7 +6,10 @@ import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import vn.nvxconnect.data.AppDatabase
 import vn.nvxconnect.data.AppSettings
 import vn.nvxconnect.data.RoomTripStore
@@ -62,6 +65,26 @@ class NvxApp : Application() {
     val vehicleServiceHost by lazy { vn.nvxconnect.service.VehicleServiceHost(this, vehicleConnection, linkScope, sessionIntent) }
     /** Lần chạy trước kết thúc khi vẫn đang muốn kết nối (tiến trình bị hệ điều hành tắt, hoặc người dùng vuốt tắt app). */
     val previousSessionUnclean: Boolean get() = sessionIntent.previousSessionUnclean
+    // ---- Advanced Vehicle Data Logger (CHỈ ĐỌC, lưu cục bộ filesDir/diag, không tải lên máy chủ) ----
+    /** Kho nhật ký phiên chẩn đoán: mỗi phiên một tệp, không tự xóa; chỉ người dùng xác nhận mới xóa. */
+    val diagStore by lazy { vn.nvxconnect.telemetry.DiagSessionStore(java.io.File(filesDir, "diag")) }
+    val diagLogger by lazy { vn.nvxconnect.telemetry.AdvancedLogger(diagStore, AppInfo.VERSION) }
+    private val diagGps by lazy {
+        tripEngine.lastFix.map { p -> if (p != null && p.accuracyM <= 50f && p.speedMps.isFinite() && p.speedMps >= 0f) vn.nvxconnect.telemetry.GpsSample(p.speedMps * 3.6, p.timeMs, p.accuracyM.toDouble()) else null }
+            .stateIn(linkScope, SharingStarted.Eagerly, null)
+    }
+    private fun diagResolve(): vn.nvxconnect.protocol.VehicleLinkStatus = vn.nvxconnect.protocol.VehicleLinkStatus.resolve(vehicleConnection.state.value, adapters, vehicleConnection.hint.value)
+    private fun diagAdapter() = (vehicleConnection.state.value as? vn.nvxconnect.protocol.ConnState.Ready)?.let { adapters.find(it.services) }
+    val diagCollector by lazy {
+        vn.nvxconnect.telemetry.DiagCollector(diagLogger, vn.nvxconnect.telemetry.DiagInputs(
+            connState = vehicleConnection.state, rssi = vehicleConnection.rssi, mtu = vehicleConnection.mtu, hint = vehicleConnection.hint,
+            linkHistory = vehicleConnection.linkHistory, capture = capture.stats, gps = diagGps,
+            tracked = { now -> vehicleData.snapshot(diagResolve().protocolVerified, diagAdapter()?.supportedParams, now) },
+            protocolVerified = { diagResolve().protocolVerified },
+            verifiedOnVehicle = { vn.nvxconnect.telemetry.DiagVerification.verifiedOnVehicle(adapters.evidences()) },
+            adapterId = { diagAdapter()?.evidence?.id },
+            deviceKey = { vehicleConnection.address?.let { vn.nvxconnect.telemetry.DurableEventLog.deviceKey(it, eventSalt) } }))
+    }
     val tftPipeline by lazy { vn.nvxconnect.protocol.TftDisplayPipeline { navAdapters.resolve() } }
 
     val tripEngine by lazy {
@@ -88,6 +111,9 @@ class NvxApp : Application() {
         navSession // bắt đầu lắng nghe sự kiện ngay từ khi mở app
         sessionIntent; vehicleServiceHost.start()   // đọc cờ "phiên trước bị dừng" TRƯỚC khi ghi đè, rồi theo dõi trạng thái để bật/tắt dịch vụ nền
         startHistoryCollectors()
+        // Logger chẩn đoán: khôi phục phiên bị đóng đột ngột (ngoài luồng chính), rồi gắn bộ thu. Bộ thu chỉ lấy mẫu khi đang ghi.
+        linkScope.launch(Dispatchers.IO) { runCatching { diagLogger.recoverOnStartup() } }
+        diagCollector.attach(linkScope)
         appScope.launch(Dispatchers.IO) { runCatching { RoomTripStore(db.dao()).recoverUnfinished() } }
     }
 

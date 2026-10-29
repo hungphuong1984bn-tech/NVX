@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import vn.nvxconnect.AppInfo
 import vn.nvxconnect.NvxApp
 import vn.nvxconnect.auto.AuthLevel
 import vn.nvxconnect.bluetooth.BleBlocker
@@ -44,6 +45,7 @@ fun HomeScreen(app: AppViewModel, ble: BleViewModel, onOpenTab: (ProTab) -> Unit
     val trips by app.trips.collectAsState()
     val maint by app.maintenance.collectAsState()
     val link by ble.linkStatus.collectAsState()
+    val diag by nvx.diagLogger.status.collectAsState()
     val gps by app.engine.gps.collectAsState()
     val fix by app.engine.lastFix.collectAsState()
     val phase by app.engine.phase.collectAsState()
@@ -104,12 +106,15 @@ fun HomeScreen(app: AppViewModel, ble: BleViewModel, onOpenTab: (ProTab) -> Unit
 
         SectionHeader("Lối tắt")
         val shortcuts = listOf(
-            Shortcut("Cockpit", "Đồng hồ, tốc độ GPS") { onOpenTab(ProTab.COCKPIT) },
-            Shortcut("Telemetry", "Biểu đồ dữ liệu thật") { onOpenTab(ProTab.TELEMETRY) },
-            Shortcut("Protocol Lab", "Quét, GATT, gói, HEX") { onOpenPage(ProPage.LAB) },
-            Shortcut("Hành trình", "Chuyến đi và thống kê") { onOpenTab(ProTab.RIDES) },
+            Shortcut("Kết nối xe", "Quét, ghép đôi, kết nối") { onOpenTab(ProTab.CONNECT) },
+            Shortcut("Dữ liệu xe", "Thu thập dữ liệu chuyên sâu") { onOpenTab(ProTab.DATA) },
+            Shortcut("Nhật ký kỹ thuật", "Lịch sử phiên, xuất ZIP") { onOpenTab(ProTab.LOG) },
+            Shortcut("Cockpit", "Đồng hồ, tốc độ GPS") { onOpenPage(ProPage.COCKPIT) },
+            Shortcut("Telemetry", "Biểu đồ dữ liệu thật") { onOpenPage(ProPage.TELEMETRY) },
+            Shortcut("Hành trình", "Chuyến đi và thống kê") { onOpenPage(ProPage.TRIPS) },
             Shortcut("Bản đồ", "Tìm đường, dẫn đường") { onOpenPage(ProPage.MAP) },
-            Shortcut("Chẩn đoán", "Kết nối, lỗi, hỗ trợ") { onOpenPage(ProPage.DIAGNOSTICS) })
+            Shortcut("Chẩn đoán", "Kết nối, lỗi, hỗ trợ") { onOpenPage(ProPage.DIAGNOSTICS) },
+            Shortcut("Protocol Lab", "Quét, GATT, gói, HEX") { onOpenPage(ProPage.LAB) })
         shortcuts.chunked(layout.columns.coerceAtLeast(2)).forEach { rowItems ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 rowItems.forEach { sc -> ShortcutCard(sc.title, sc.subtitle, sc.go, Modifier.weight(1f)) }
@@ -125,6 +130,9 @@ fun HomeScreen(app: AppViewModel, ble: BleViewModel, onOpenTab: (ProTab) -> Unit
         Panel {
             Text("Phiên kết nối", style = MaterialTheme.typography.titleSmall)
             Text(if (rec.payloads == 0L) "Chưa nhận payload nào trong phiên này." else "Phiên ${rec.session}: ${rec.payloads} payload" + (rec.lastMs?.let { " · gói cuối ${((now - it) / 1000).coerceAtLeast(0)} giây trước" } ?: ""), style = MaterialTheme.typography.bodySmall)
+            Text("Ứng dụng và phiên ghi log", style = MaterialTheme.typography.titleSmall)
+            Text("NVX Connect ${AppInfo.DISPLAY}", style = MaterialTheme.typography.bodySmall)
+            Text(if (diag.state == vn.nvxconnect.telemetry.DiagState.IDLE) "Chưa ghi log chẩn đoán." else "Đang ${if (diag.state == vn.nvxconnect.telemetry.DiagState.PAUSED) "tạm dừng" else "ghi"} log: ${diag.label} · ${diag.samples} mẫu (chuyển tab không làm dừng).", style = MaterialTheme.typography.bodySmall)
             Text("Hành trình gần nhất", style = MaterialTheme.typography.titleSmall)
             val last = real.firstOrNull()
             Text(if (last == null) "Chưa có hành trình." else "${fmtTime(last.startMs)} · %.1f km · ${fmtDur(last.endMs - last.startMs)} (GPS)".format(last.distanceM / 1000), style = MaterialTheme.typography.bodySmall)

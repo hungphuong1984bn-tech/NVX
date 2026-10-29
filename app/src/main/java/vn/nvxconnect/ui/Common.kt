@@ -42,6 +42,15 @@ object ShareFiles {
     }
 }
 
+/** Chia sẻ MỘT TỆP đã có (không nạp cả nội dung vào bộ nhớ) qua Android Sharesheet + FileProvider. Tệp phải nằm trong cacheDir/exports. */
+object ShareFile {
+    fun share(context: Context, file: File, mime: String, title: String = "Chia sẻ nhật ký chẩn đoán") {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        val send = Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_SUBJECT, file.name).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(Intent.createChooser(send, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
+
 /** Nút điều khiển hành trình: bắt đầu / tạm dừng / tiếp tục / kết thúc. Bắt đầu cần quyền vị trí chính xác. */
 @Composable
 internal fun TripControls(app: AppViewModel) {

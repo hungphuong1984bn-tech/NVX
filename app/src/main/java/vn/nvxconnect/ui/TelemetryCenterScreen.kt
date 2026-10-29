@@ -167,7 +167,7 @@ fun TelemetryCenterScreen(app: AppViewModel, onOpenConnect: () -> Unit) {
             }
             if (replay.isNotEmpty()) TextButton(onClick = { app.replaySeries.value = emptyMap(); selected = selected.filterNot { it.startsWith("replay:") } }) { Text("Gỡ dữ liệu phát lại") }
             OutlinedButton(onClick = { confirmClear = true }, Modifier.heightIn(min = 48.dp)) { Text("Xóa lịch sử biểu đồ") }
-            Text("Phát lại dùng tệp CSV do Telemetry Center xuất. Log payload thô (JSON) nạp ở Công cụ → Protocol Lab → Evidence & Verification.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Phát lại dùng tệp CSV do Telemetry Center xuất. Log payload thô (JSON) nạp ở Kết nối xe → Protocol Lab → Evidence & Verification.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     if (confirmClear) ConfirmDialog("Xóa lịch sử biểu đồ?", "Toàn bộ mẫu đang giữ trong bộ nhớ sẽ bị xóa. Không ảnh hưởng hành trình hay log payload.", "Xóa", { confirmClear = false; nvx.history.clear(); selected = emptyList() }, { confirmClear = false })

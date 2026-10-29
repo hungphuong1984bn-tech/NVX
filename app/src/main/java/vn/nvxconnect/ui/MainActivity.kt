@@ -9,7 +9,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
@@ -21,6 +20,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import vn.nvxconnect.NvxApp
 import vn.nvxconnect.helpcenter.HelpAction
@@ -49,10 +49,13 @@ class MainActivity : ComponentActivity() {
 }
 
 private val navSaver = Saver<ProNavState, Any>(save = { it.encode() }, restore = { ProNavState.decode(it as? String) })
-private val tabIcons = listOf(Icons.Filled.Home, Icons.Filled.Info, Icons.Filled.DateRange, Icons.Filled.Place, Icons.Filled.Build)
+// Thứ tự khớp ProTab: Tổng quan, Kết nối xe, Dữ liệu xe, Nhật ký kỹ thuật.
+private val tabIcons = listOf(Icons.Filled.Home, Icons.Filled.Place, Icons.Filled.Info, Icons.Filled.DateRange)
 
 /**
- * 5 tab: Trang chủ, Cockpit, Telemetry, Hành trình, Công cụ. Trang con (Protocol Lab, Chẩn đoán, Cài đặt...) nằm trong tab sở hữu.
+ * 4 tab: Tổng quan, Kết nối xe, Dữ liệu xe, Nhật ký kỹ thuật. Mọi màn hình cũ còn nguyên, là trang con của tab sở hữu
+ * (thao tác kết nối CHỈ ở tab Kết nối xe). Đổi tab chỉ đổi màn hình hiển thị: kết nối BLE, bộ thu và logger sống ở NvxApp/ViewModel
+ * phạm vi Activity nên không bị ngắt hay dừng.
  * Trạng thái điều hướng lưu qua xoay màn hình/tiến trình bị thu hồi; trạng thái cuộn/lọc của từng màn hình giữ khi đổi tab.
  * Chỉ MỘT BleViewModel/AppViewModel/NavViewModel (phạm vi Activity) nên không có bản sao phiên BLE.
  */
@@ -69,16 +72,17 @@ fun App(app: AppViewModel = viewModel(), ble: BleViewModel = viewModel(), navVm:
     val open: (ProPage) -> Unit = { nav = nav.open(it) }
     val openHelp: (String?) -> Unit = { nav = nav.openHelp(it) }
     val back: () -> Unit = { nav = nav.back() }
+    val goConnect: () -> Unit = { nav = nav.showRoot(ProTab.CONNECT) }   // mọi nút "Mở màn hình kết nối" đều về gốc tab Kết nối xe
     val goTo: (HelpAction) -> Unit = { a ->
         when (a) {
-            HelpAction.OPEN_CONNECT -> open(ProPage.CONNECT)
+            HelpAction.OPEN_CONNECT -> goConnect()
             HelpAction.OPEN_AUTO_CONNECT -> open(ProPage.AUTO)
             HelpAction.OPEN_ANALYSIS -> open(ProPage.LAB)
             HelpAction.OPEN_CAPABILITIES -> open(ProPage.CAPABILITIES)
             HelpAction.OPEN_TFT -> open(ProPage.TFT)
             HelpAction.OPEN_SETTINGS -> open(ProPage.SETTINGS)
             HelpAction.OPEN_MAP -> open(ProPage.MAP)
-            HelpAction.OPEN_TRIPS -> nav = nav.selectTab(ProTab.RIDES)
+            HelpAction.OPEN_TRIPS -> open(ProPage.TRIPS)
             HelpAction.OPEN_VEHICLE -> open(ProPage.VEHICLE)
             // Hai hành động hệ thống được HelpCenterScreen tự xử lý, không đi qua đây.
             HelpAction.OPEN_SYSTEM_BLUETOOTH, HelpAction.OPEN_APP_SETTINGS -> {}
@@ -96,23 +100,30 @@ fun App(app: AppViewModel = viewModel(), ble: BleViewModel = viewModel(), navVm:
         Box(Modifier.padding(pad).fillMaxSize()) {
             holder.SaveableStateProvider("${nav.tab.name}:${nav.page?.name ?: "root"}") {
                 when (val p = nav.page) {
-                    ProPage.LAB -> ProtocolLabScreen(ble, onBack = back, onOpenCapabilities = { open(ProPage.CAPABILITIES) }, onOpenHelp = openHelp, onOpenConnect = { open(ProPage.CONNECT) })
+                    ProPage.LAB -> ProtocolLabScreen(ble, onBack = back, onOpenCapabilities = { open(ProPage.CAPABILITIES) }, onOpenHelp = openHelp, onOpenConnect = goConnect)
                     ProPage.DIAGNOSTICS -> DiagnosticsScreen(ble, onBack = back, onOpenHelp = openHelp, onOpenLab = { open(ProPage.LAB) })
                     ProPage.SETTINGS -> SettingsScreen(app, ble, navVm, onBack = back, onOpenTft = { open(ProPage.TFT) }, onOpenHelp = openHelp, onOpenLab = { open(ProPage.LAB) })
-                    ProPage.CONNECT -> ConnectScreen(ble, onOpenAuto = { open(ProPage.AUTO) }, onOpenHelp = openHelp)
                     ProPage.AUTO -> AutoConnectScreen(app, ble, onBack = back, onOpenAnalysis = { open(ProPage.LAB) }, onOpenHelp = openHelp)
                     ProPage.CAPABILITIES -> CapabilityScreen(ble, onBack = back)
                     ProPage.TFT -> TftDisplayScreen(app, navVm, ble, onBack = back, onOpenHelp = openHelp)
                     ProPage.HELP -> HelpCenterScreen(ble, nav.helpTopic, onBack = back, onNavigate = goTo)
                     ProPage.MAP -> MapScreen(app, navVm, onOpenTft = { open(ProPage.TFT) })
                     ProPage.VEHICLE -> VehicleScreen(app, ble, onOpenHelp = openHelp)
+                    ProPage.TRIPS -> TripsScreen(app, onOpenMap = { open(ProPage.MAP) })
+                    ProPage.COCKPIT -> CockpitScreen(app, ble, fullscreen = nav.fullscreenCockpit, onFullscreen = { nav = if (it) nav.enterCockpit() else nav.exitCockpit() },
+                        onOpenConnect = goConnect, onOpenSettings = { open(ProPage.SETTINGS) })
+                    ProPage.TELEMETRY -> TelemetryCenterScreen(app, onOpenConnect = goConnect)
                     null -> when (nav.tab) {
-                        ProTab.HOME -> HomeScreen(app, ble, onOpenTab = { nav = nav.selectTab(it) }, onOpenPage = open, onOpenHelp = openHelp)
-                        ProTab.COCKPIT -> CockpitScreen(app, ble, fullscreen = nav.fullscreenCockpit, onFullscreen = { nav = if (it) nav.enterCockpit() else nav.exitCockpit() },
-                            onOpenConnect = { open(ProPage.CONNECT) }, onOpenSettings = { open(ProPage.SETTINGS) })
-                        ProTab.TELEMETRY -> TelemetryCenterScreen(app, onOpenConnect = { open(ProPage.CONNECT) })
-                        ProTab.RIDES -> TripsScreen(app, onOpenMap = { open(ProPage.MAP) })
-                        ProTab.TOOLS -> ToolsScreen(onOpen = open)
+                        ProTab.OVERVIEW -> HomeScreen(app, ble, onOpenTab = { nav = nav.showRoot(it) }, onOpenPage = open, onOpenHelp = openHelp)
+                        ProTab.CONNECT -> ConnectScreen(ble, onOpenAuto = { open(ProPage.AUTO) }, onOpenHelp = openHelp, onOpenLab = { open(ProPage.LAB) })
+                        // Module Dữ liệu xe chuyên sâu giữ nguyên; ở đây chỉ đặt làm gốc tab (phần lịch sử/xuất chuyển sang Nhật ký kỹ thuật).
+                        ProTab.DATA -> AdvancedDataScreen(onOpenConnect = goConnect, showHistory = false) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { open(ProPage.COCKPIT) }, Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Cockpit") }
+                                OutlinedButton(onClick = { open(ProPage.TELEMETRY) }, Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Biểu đồ Telemetry") }
+                            }
+                        }
+                        ProTab.LOG -> TechLogScreen(onOpenDiagnostics = { open(ProPage.DIAGNOSTICS) })
                     }
                 }
             }

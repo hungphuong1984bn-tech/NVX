@@ -455,5 +455,5 @@ private fun ColumnScope.ExportTab(ble: BleViewModel) {
         OutlinedButton(onClick = { export("nvx-capabilities-$stamp.json", "application/json", false) { ble.capabilityJson() } }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Chức năng (JSON)") }
         OutlinedButton(onClick = { export("nvx-capabilities-$stamp.txt", "text/plain", false) { ble.capabilityText() } }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Chức năng (TXT)") }
     }
-    Text("Mọi tệp đã che địa chỉ MAC và tên thiết bị. Gói hỗ trợ kỹ thuật nằm ở Công cụ → Chẩn đoán.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("Mọi tệp đã che địa chỉ MAC và tên thiết bị. Gói hỗ trợ kỹ thuật nằm ở Nhật ký kỹ thuật → Chẩn đoán.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
