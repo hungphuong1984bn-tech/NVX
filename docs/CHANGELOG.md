@@ -27,7 +27,15 @@ Dựa trên 2 log thật của NVX 155 V3 SP (`nvx-ble-log-20261025-190509`, `-1
 
 # CHANGELOG
 
+
+## Chưa phát hành — Điều hướng 4 tab, xuất một ZIP, phiên bản tập trung
+- **4 tab**: Tổng quan · Kết nối xe · Dữ liệu xe · Nhật ký kỹ thuật (thay 5 tab cũ). Mọi màn hình cũ còn nguyên, thành trang con: Cockpit/Telemetry (thuộc Dữ liệu xe, mở từ lối tắt), Hành trình/Bản đồ/Cài đặt/Hướng dẫn/Xe/TFT/Danh mục (Tổng quan), Tự tìm xe/Protocol Lab (Kết nối xe), Chẩn đoán (Nhật ký kỹ thuật). Thao tác kết nối chỉ nằm ở Kết nối xe. Chuyển tab không ngắt BLE, không dừng ghi log. Trạng thái điều hướng cũ (5 tab) đã lưu được bỏ qua an toàn.
+- **Dữ liệu xe**: gốc tab là module Dữ liệu xe chuyên sâu, KHÔNG đổi logic (chỉ thêm tham số giao diện tùy chọn, mặc định như cũ). Lịch sử/xuất chuyển sang Nhật ký kỹ thuật.
+- **Nhật ký kỹ thuật**: lịch sử phiên, Xem phiên (tóm tắt chỉ đọc), nút **XUẤT TOÀN BỘ DỮ LIỆU** tạo MỘT ZIP `NVX-Connect-v<phiên bản>-<yyyyMMdd-HHmmss>.zip` (README, metadata.json; mỗi phiên: report.html, telemetry.csv, events.csv, metadata.json, charts/*.svg khi đủ mẫu thật). Ghép từ bộ xuất hiện có; ZIP được mở lại, kiểm CRC/SHA-256/cấu trúc trước khi báo thành công; chia sẻ qua Android Sharesheet. Ẩn các nút xuất từng tệp riêng của phiên.
+- **Phiên bản/APK**: `version.properties` là nguồn duy nhất; `gradle releaseApk` tăng phiên bản đúng một lần khi và chỉ khi build + kiểm tra thành công, xuất `release-apk/NVX-Connect-v<phiên bản>.apk` không ghi đè; hỗ trợ khóa ký cố định (docs/RELEASE.md). Phiên bản trong app lấy từ BuildConfig. Bỏ hậu tố `-live` (0.13.0-live → 0.13.0).
+- Test: thêm DiagBundleTest (ZIP) và cập nhật ProNavTest theo 4 tab; `tools/test-release.sh` kiểm thử logic phát hành.
 ## Chưa phát hành (sau 0.13.0-live)
+- **Dữ liệu xe chuyên sâu (Advanced Vehicle Data Logger)**: màn hình mới (Công cụ), ghi log phiên Bắt đầu/Tạm dừng/Tiếp tục/Kết thúc, ghi chú sự cố, lịch sử, xuất CSV/JSON/TXT/HTML qua Sharesheet, phục hồi sau khi đóng đột ngột, giới hạn dung lượng không tự xóa log. Phân loại Thực/Suy tính/Chưa hỗ trợ/Không hợp lệ. Chỉ đọc, không tải lên máy chủ. Xem `docs/ADVANCED_DATA_LOGGER.md`. +23 test (568). Gradle/Compose chưa chạy; chưa xác minh trên xe thật.
 Thêm lớp ghép khung, 5 mức liên kết, vòng đời trường, hồ sơ tương thích adapter, nhật ký sự kiện bền vững; 545 test. Xem docs/UPGRADE_AUDIT_AND_HANDOVER.md.
 
 ## 0.8.0-ycc-calibration (2026-10-24)

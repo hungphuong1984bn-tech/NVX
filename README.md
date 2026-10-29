@@ -20,3 +20,11 @@ Mở bằng Android Studio (Koala+ / AGP 8.5), JDK 17, chạy trên điện tho�
 2. Tab **Actions** → **Android CI** (tự chạy khi push, hoặc *Run workflow*).
 3. Tải artifact **nvx-connect-debug-apk** ở cuối trang kết quả; cài APK (bật cài từ nguồn không xác định).
 Workflow dùng Gradle 8.9 cài sẵn, không cần gradle-wrapper.
+
+
+## Dữ liệu xe chuyên sâu (Advanced Vehicle Data Logger)
+Tab "Dữ liệu xe" (lịch sử + xuất ZIP ở tab "Nhật ký kỹ thuật"): xem số liệu đọc được (phân loại thực/suy tính/chưa hỗ trợ/không hợp lệ), ghi log phiên, ghi chú sự cố, xuất CSV/JSON/TXT/HTML qua Sharesheet. Chỉ đọc, không gửi lệnh, không tải lên máy chủ. **Chưa xác minh trên xe thật.** Hướng dẫn: `docs/ADVANCED_DATA_LOGGER.md`.
+
+
+## Phiên bản và phát hành
+Phiên bản nằm ở `version.properties`; phát hành APK bằng `gradle releaseApk` → `release-apk/NVX-Connect-v<phiên bản>.apk`. Chi tiết và cấu hình khóa ký: `docs/RELEASE.md`.

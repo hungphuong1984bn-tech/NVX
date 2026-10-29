@@ -51,3 +51,4 @@ Nhắc bảo dưỡng bằng thông báo hệ thống, tải bản đồ offline
 | Trạng thái BONDED / CONNECTION_BUSY / AUTHENTICATED đúng nghĩa | có | có | chưa | chưa | |
 | Nhãn ENCRYPTED_OR_AUTHENTICATED | có | có | chưa | chưa | |
 | Cảnh báo mất kết nối cho người lái | **không có** | – | – | – | Khoảng trống được danh mục ghi nhận |
+| Dữ liệu xe chuyên sâu (logger, xuất CSV/JSON/TXT/HTML, phục hồi) | có | có (23 test) | chưa | chưa | Chưa xác minh trên xe thật; UI Compose chưa biên dịch; tham số xe "Chưa hỗ trợ" tới khi có adapter có bằng chứng |
