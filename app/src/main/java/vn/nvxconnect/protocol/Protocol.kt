@@ -93,24 +93,44 @@ object RawCaptureAdapter : VehicleProtocolAdapter {
     override fun decode(frame: RawFrame) = listOf<DecodedItem>(DecodedItem.Unknown(frame))
 }
 
-/** Rỗng theo mặc định vì chưa có bằng chứng giao thức nào. */
-class AdapterRegistry {
+/**
+ * Rỗng theo mặc định vì chưa có bằng chứng giao thức nào.
+ * [requireProfile] = true (bản chạy thật): CHỈ [registerProfiled] được kích hoạt adapter, và chỉ khi [AdapterProfileGate] không còn lý do từ chối.
+ * false (mặc định, tương thích test cũ): [register] vẫn đòi bằng chứng xe thật nhưng không đòi hồ sơ tương thích.
+ */
+class AdapterRegistry(private val requireProfile: Boolean = false) {
     private val adapters = mutableListOf<VehicleProtocolAdapter>()
+    private val profiles = HashMap<VehicleProtocolAdapter, AdapterCompatibilityProfile>()
+    private val rejections = ArrayList<String>()
 
     fun register(a: VehicleProtocolAdapter) {
         val e = a.evidence
+        require(!requireProfile) { "Từ chối adapter '${e.id}': registry bắt buộc hồ sơ tương thích (dùng registerProfiled)" }
         require(e.verified && !e.testedOnVehicle.isNullOrBlank() && !e.testResult.isNullOrBlank() && e.serviceUuids.isNotEmpty() && e.sampleHexRedacted.isNotEmpty()) {
             "Từ chối adapter '${e.id}': thiếu bằng chứng đã xác minh trên xe thật"
         }
         adapters += a
     }
+
+    /** Đăng ký kèm hồ sơ tương thích. Ném IllegalArgumentException (và ghi lý do vào [rejectionLog]) nếu thiếu bằng chứng. */
+    fun registerProfiled(a: VehicleProtocolAdapter, profile: AdapterCompatibilityProfile?) {
+        val why = AdapterProfileGate.check(a.evidence, profile)
+        if (why.isNotEmpty()) { synchronized(rejections) { rejections += "${a.evidence.id}: ${why.joinToString("; ")}" }; throw IllegalArgumentException("Từ chối adapter '${a.evidence.id}': ${why.joinToString("; ")}") }
+        adapters += a; profiles[a] = profile!!
+    }
+
     /** Adapter ĐÃ XÁC MINH khớp với các service của thiết bị, hoặc null nếu chưa có (RawCaptureAdapter không tính). */
-    fun find(services: List<GattServiceInfo>): VehicleProtocolAdapter? = adapters.firstOrNull { it.matches(services) }
+    fun find(services: List<GattServiceInfo>): VehicleProtocolAdapter? = adapters.firstOrNull { a ->
+        a.matches(services) && (profiles[a]?.presentIn(services) ?: !requireProfile)
+    }
     fun decode(services: List<GattServiceInfo>, frame: RawFrame): List<DecodedItem> =
         (find(services) ?: RawCaptureAdapter).decode(frame)
     val count get() = adapters.size
     /** Hồ sơ bằng chứng của các adapter đã đăng ký (chỉ đọc), dùng cho màn hình hồ sơ giao thức. */
     fun evidences(): List<ProtocolEvidence> = adapters.map { it.evidence }
+    fun profileOf(a: VehicleProtocolAdapter): AdapterCompatibilityProfile? = profiles[a]
+    /** Các lần đăng ký bị từ chối (để báo cáo, không mất âm thầm). */
+    fun rejectionLog(): List<String> = synchronized(rejections) { rejections.toList() }
 }
 
 object FrameRedactor {

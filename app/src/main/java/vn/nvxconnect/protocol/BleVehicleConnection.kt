@@ -169,10 +169,10 @@ class BleVehicleConnection private constructor(
     fun dispose() { c.disconnect(); port.dispose() }
 
     companion object {
-        fun create(context: Context, scope: CoroutineScope, sink: FrameSink? = null): BleVehicleConnection {
+        fun create(context: Context, scope: CoroutineScope, sink: FrameSink? = null, eventSink: vn.nvxconnect.telemetry.ConnectionEventSink? = null): BleVehicleConnection {
             val port = AndroidGattPort(context.applicationContext)
             // Chế độ xe: nối lại không giới hạn (có rung) + tự bật nghe kênh notify của UART (xem docs/KET_NOI_THAT.md).
-            return BleVehicleConnection(port, GattSessionController(port, scope, ReconnectPolicy.vehicle(), autoListen = YccAutoListen::pick, sink = sink))
+            return BleVehicleConnection(port, GattSessionController(port, scope, ReconnectPolicy.vehicle(), autoListen = YccAutoListen::pick, sink = sink, eventSink = eventSink))
         }
     }
 }

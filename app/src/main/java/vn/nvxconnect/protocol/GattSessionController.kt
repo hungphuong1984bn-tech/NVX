@@ -34,7 +34,9 @@ class GattSessionController(
     private val sink: FrameSink? = null,
     /** Đồng hồ đơn điệu (ns) để đo khoảng cách giữa các gói và thời gian kết nối liên tục. */
     private val mono: () -> Long = System::nanoTime,
-    private val random: () -> Double = Math::random
+    private val random: () -> Double = Math::random,
+    /** Nhận sự kiện kết nối có cấu trúc (không chặn). sessionId/deviceKey để trống: bộ ghi bên ngoài điền. null = không ghi. */
+    private val eventSink: vn.nvxconnect.telemetry.ConnectionEventSink? = null
 ) : VehicleConnection, GattEvents {
 
     private val lock = Any()
@@ -118,6 +120,7 @@ class GattSessionController(
         cancelTimers()
         userStopped = false; attempt = 0; this.target = address
         sessionFrames.set(0); everReady = false; userOff.clear(); _hint.value = LinkHint.NONE
+        ev(vn.nvxconnect.telemetry.EventKinds.CONNECT_ATTEMPT, vn.nvxconnect.telemetry.EventOutcome.INFO, null, "Yêu cầu kết nối")
         sink?.onSessionStart()
         desired.clear(); _subs.value = emptyMap(); _info.value = emptyMap()
         open()
@@ -232,11 +235,26 @@ class GattSessionController(
     /** Mốc đồng hồ đơn điệu lúc đạt Ready (null nếu chưa). Dùng để tính thời gian liên kết sống khi ghi lịch sử. */
     @Volatile private var readyAtMono: Long? = null
 
+    private fun ev(kind: String, outcome: vn.nvxconnect.telemetry.EventOutcome, status: Int? = null, detail: String = "", attrs: Map<String, String> = emptyMap()) {
+        val s = eventSink ?: return
+        try { s.onEvent(vn.nvxconnect.telemetry.ConnectionEvent(clock(), mono(), "", epoch, null, kind, outcome, status, detail, attrs)) } catch (_: Exception) { /* ghi nhật ký không được làm hỏng phiên GATT */ }
+    }
+
     private fun pushHistory(kind: LinkEventKind, status: Int?, reason: String) {
         val up = readyAtMono?.let { (mono() - it) / 1_000_000 }
         readyAtMono = null; _readySince.value = null
         val e = LinkEvent(clock(), epoch, kind, status, reason, up, attempt, sessionFrames.get())
         _history.value = (_history.value + e).takeLast(MAX_HISTORY)
+        val k = vn.nvxconnect.telemetry.EventKinds
+        val extra = buildMap { up?.let { put("upMs", it.toString()) }; put("attempt", attempt.toString()); put("framesInSession", e.framesInSession.toString()) }
+        when (kind) {
+            LinkEventKind.ATTEMPT_FAILED -> ev(k.CONNECT_ATTEMPT, vn.nvxconnect.telemetry.EventOutcome.FAILURE, status, reason, extra)
+            LinkEventKind.LINK_LOST -> ev(k.DISCONNECT, vn.nvxconnect.telemetry.EventOutcome.FAILURE, status, reason, extra)
+            LinkEventKind.USER_DISCONNECT -> ev(k.DISCONNECT, vn.nvxconnect.telemetry.EventOutcome.INFO, status, reason, extra)
+            LinkEventKind.BLUETOOTH_OFF -> ev(k.ERROR, vn.nvxconnect.telemetry.EventOutcome.FAILURE, status, reason, extra)
+            LinkEventKind.AUTH_REQUIRED -> ev(k.BOND, vn.nvxconnect.telemetry.EventOutcome.FAILURE, status, reason, extra)
+            else -> ev(k.ERROR, vn.nvxconnect.telemetry.EventOutcome.INFO, status, reason, extra)
+        }
     }
 
     private fun cancelTimers() { timeoutJob?.cancel(); retryJob?.cancel(); timeoutJob = null; retryJob = null }
@@ -286,6 +304,9 @@ class GattSessionController(
     }
 
     private fun setSub(uuid: String, s: SubscriptionState?) {
+        if (s == SubscriptionState.ACTIVE) ev(vn.nvxconnect.telemetry.EventKinds.SUBSCRIBE, vn.nvxconnect.telemetry.EventOutcome.SUCCESS, 0, "Thiết bị xác nhận ghi CCCD", mapOf("char" to uuid))
+        else if (s == SubscriptionState.FAILED) ev(vn.nvxconnect.telemetry.EventKinds.SUBSCRIBE, vn.nvxconnect.telemetry.EventOutcome.FAILURE, null, "Ghi CCCD thất bại", mapOf("char" to uuid))
+        else if (s == SubscriptionState.PENDING) ev(vn.nvxconnect.telemetry.EventKinds.SUBSCRIBE, vn.nvxconnect.telemetry.EventOutcome.NOT_TESTED, null, "Đang chờ thiết bị xác nhận", mapOf("char" to uuid))
         val m = _subs.value.toMutableMap()
         if (s == null) m.remove(uuid) else m[uuid] = s
         _subs.value = m
@@ -349,8 +370,8 @@ class GattSessionController(
 
     override fun onMtu(mtu: Int, status: Int) = synchronized(lock) {
         if (!_state.value.isActive) { lateDropped(); return@synchronized }
-        if (status == 0) { _mtu.value = mtu; emitLog(LogKind.GATT, "MTU = $mtu") }
-        else emitLog(LogKind.GATT, "Đổi MTU thất bại: ${GattStatus.describe(status)}")
+        if (status == 0) { _mtu.value = mtu; emitLog(LogKind.GATT, "MTU = $mtu"); ev(vn.nvxconnect.telemetry.EventKinds.MTU, vn.nvxconnect.telemetry.EventOutcome.SUCCESS, status, "MTU", mapOf("mtu" to mtu.toString())) }
+        else { emitLog(LogKind.GATT, "Đổi MTU thất bại: ${GattStatus.describe(status)}"); ev(vn.nvxconnect.telemetry.EventKinds.MTU, vn.nvxconnect.telemetry.EventOutcome.FAILURE, status, GattStatus.describe(status)) }
         done("mtu")
     }
 
@@ -368,6 +389,8 @@ class GattSessionController(
         charService = HashMap<String, String>().also { m -> services.forEach { sv -> sv.characteristics.forEach { c -> m[norm(c.uuid)] = sv.uuid } } }
         readyAtMono = mono(); readyAtWall = clock(); _readySince.value = readyAtMono
         _history.value = (_history.value + LinkEvent(readyAtWall, epoch, LinkEventKind.READY, null, "Sẵn sàng", null, attempt, 0)).takeLast(MAX_HISTORY)
+        ev(vn.nvxconnect.telemetry.EventKinds.DISCOVERY, vn.nvxconnect.telemetry.EventOutcome.SUCCESS, 0, "Khám phá dịch vụ xong",
+            mapOf("services" to services.size.toString(), "characteristics" to services.sumOf { it.characteristics.size }.toString(), "mtu" to _mtu.value.toString()))
         setState(ConnState.Ready(services), "Sẵn sàng: ${services.size} service, ${services.sumOf { it.characteristics.size }} characteristic")
         if (services.isEmpty()) emitLog(LogKind.INFO, "Thiết bị không công bố service nào")
         startRssiPoll()
@@ -419,7 +442,10 @@ class GattSessionController(
     override fun onNotification(charUuid: String, value: ByteArray) {
         val st = _state.value
         if (st !is ConnState.Ready) { lateDropped(); return }   // gói muộn của phiên đã đóng/đang nối lại: không xử lý
-        if (sessionFrames.getAndIncrement() == 0L) synchronized(lock) { _hint.value = LinkHint.STREAMING }
+        if (sessionFrames.getAndIncrement() == 0L) {
+            synchronized(lock) { _hint.value = LinkHint.STREAMING }
+            ev(vn.nvxconnect.telemetry.EventKinds.DATA_FIRST, vn.nvxconnect.telemetry.EventOutcome.SUCCESS, null, "Payload đầu tiên của phiên GATT", mapOf("char" to norm(charUuid), "length" to value.size.toString()))
+        }
         val wall = clock(); val m = mono(); val copy = value.copyOf(); val u = norm(charUuid)
         sink?.onFrame(epoch, u, charService[u], copy, wall, m, _rssi.value, st.code, u in indicateOnly)
         if (!_frames.tryEmit(RawFrame(wall, charUuid, copy))) { uiDropped.incrementAndGet(); publishDiag() }

@@ -18,10 +18,15 @@ data class LogEntry(
 /** Bộ đệm vòng, an toàn đa luồng. */
 class SessionLogBuffer(private val capacity: Int = 5000) {
     private val q = ArrayDeque<LogEntry>()
-    @Synchronized fun add(e: LogEntry) { q.addLast(e); while (q.size > capacity) q.removeFirst() }
+    private var dropped = 0L
+    /** Bản ghi cũ nhất bị đẩy ra khi đầy được ĐẾM (không mất âm thầm). Xuất log phải kèm số này. */
+    @Synchronized fun add(e: LogEntry) { q.addLast(e); while (q.size > capacity) { q.removeFirst(); dropped++ } }
     @Synchronized fun snapshot(): List<LogEntry> = q.toList()
+    /** Xóa theo yêu cầu người dùng; bộ đếm [droppedCount] được giữ để báo cáo không che mất việc đã loại bản ghi. */
     @Synchronized fun clear() = q.clear()
     @Synchronized fun size() = q.size
+    @Synchronized fun droppedCount() = dropped
+    @Synchronized fun isTruncated() = dropped > 0
 }
 
 object HexUtil {

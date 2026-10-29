@@ -27,7 +27,7 @@ class NvxApp : Application() {
     val navAdapters by lazy { vn.nvxconnect.protocol.NavAdapterRegistry() }
 
     /** Registry adapter giao thức xe dùng chung (rỗng tới khi có bằng chứng); dữ liệu đã giải mã đi vào [telemetry]. */
-    val adapters by lazy { vn.nvxconnect.protocol.AdapterRegistry() }
+    val adapters by lazy { vn.nvxconnect.protocol.AdapterRegistry(requireProfile = true) }
     val telemetry by lazy { vn.nvxconnect.protocol.TelemetryHub() }
     /** Lớp xác thực đứng trước [telemetry]: kiểm tra khoảng hợp lệ, gắn trạng thái VERIFIED/STALE/..., giữ nhật ký nguồn. */
     val vehicleData by lazy { vn.nvxconnect.vehicledata.VehicleDataRepository(telemetry) }
@@ -48,7 +48,16 @@ class NvxApp : Application() {
     /** Đường thu thập gói: hàng đợi có giới hạn → ghi lô xuống tệp bền vững ở filesDir/capture (không có MAC). */
     val capture by lazy { vn.nvxconnect.telemetry.CapturePipeline(java.io.File(filesDir, "capture"), linkScope) }
     /** DUY NHẤT một phiên GATT cho cả ứng dụng (ViewModel chỉ quan sát/điều khiển, không tự tạo phiên). */
-    val vehicleConnection by lazy { vn.nvxconnect.protocol.BleVehicleConnection.create(this, linkScope, capture) }
+    /** Nhật ký sự kiện kết nối bền vững (JSONL, xoay vòng, có bộ đếm mất). Chỉ chứa mã thiết bị ẩn danh, không có MAC. */
+    val eventLog by lazy { vn.nvxconnect.telemetry.DurableEventLog(java.io.File(filesDir, "events")) }
+    private val eventSalt: String by lazy {
+        val sp = getSharedPreferences("nvx_events", MODE_PRIVATE)
+        sp.getString("salt", null) ?: java.util.UUID.randomUUID().toString().also { sp.edit().putString("salt", it).apply() }
+    }
+    val vehicleConnection: vn.nvxconnect.protocol.BleVehicleConnection by lazy {
+        vn.nvxconnect.protocol.BleVehicleConnection.create(this, linkScope, capture,
+            vn.nvxconnect.telemetry.ConnectionEventRecorder(eventLog, { capture.sessionId }, { vehicleConnection.address?.let { vn.nvxconnect.telemetry.DurableEventLog.deviceKey(it, eventSalt) } }))
+    }
     val sessionIntent by lazy { vn.nvxconnect.service.SessionIntentStore(this) }
     val vehicleServiceHost by lazy { vn.nvxconnect.service.VehicleServiceHost(this, vehicleConnection, linkScope, sessionIntent) }
     /** Lần chạy trước kết thúc khi vẫn đang muốn kết nối (tiến trình bị hệ điều hành tắt, hoặc người dùng vuốt tắt app). */
