@@ -27,6 +27,9 @@ Dựa trên 2 log thật của NVX 155 V3 SP (`nvx-ble-log-20261025-190509`, `-1
 
 # CHANGELOG
 
+## Chưa phát hành (sau 0.13.0-live)
+Thêm lớp ghép khung, 5 mức liên kết, vòng đời trường, hồ sơ tương thích adapter, nhật ký sự kiện bền vững; 545 test. Xem docs/UPGRADE_AUDIT_AND_HANDOVER.md.
+
 ## 0.8.0-ycc-calibration (2026-10-24)
 Nâng độ chính xác của các kênh lấy dữ liệu. Vẫn KHÔNG có trường nào VERIFIED và vẫn không ghi vào xe.
 - **Mới** `YccCalibration.kt` / `YccCalibrationController.kt`: hiệu chỉnh bằng điểm tham chiếu thật (đồng hồ xe/vạn năng): hồi quy bình phương tối thiểu, R², RMSE, sai số leave-one-out, ngưỡng chất lượng theo kênh (≥4 điểm, độ phủ tối thiểu, hệ số hợp lý), phát hiện điểm gõ sai, chỉ nhận điểm khi tín hiệu ỔN ĐỊNH (trung vị, biên độ giới hạn).
