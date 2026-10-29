@@ -62,7 +62,7 @@ fun VerificationTab(ble: BleViewModel) {
     }
 
     SectionHeader("Trường telemetry")
-    verdicts.forEach { v -> FieldCard(v, now) }
+    verdicts.forEach { v -> FieldCard(v, now, ble.lifecycleOf(v)) }
 
     Panel {
         Text("Phân tích ngoại tuyến & đối chiếu", style = MaterialTheme.typography.titleSmall)
@@ -81,11 +81,12 @@ fun VerificationTab(ble: BleViewModel) {
 }
 
 @Composable
-private fun FieldCard(v: FieldVerdict, now: Long) {
+private fun FieldCard(v: FieldVerdict, now: Long, life: vn.nvxconnect.telemetry.FieldLifecycleState) {
     Panel {
         val tone = when (v.status) { VerificationStatus.VERIFIED -> "ĐÃ XÁC MINH"; VerificationStatus.CORRELATED -> "ĐÃ ĐỐI CHIẾU — CHƯA ĐỦ TIÊU CHÍ"; VerificationStatus.DECODED_HYPOTHESIS -> "GIẢ THUYẾT — CHƯA XÁC MINH"
             VerificationStatus.RAW_UNVERIFIED -> "DỮ LIỆU THÔ — CHƯA XÁC MINH"; VerificationStatus.STALE -> "DỮ LIỆU QUÁ HẠN"; VerificationStatus.UNAVAILABLE -> "CHƯA CÓ NGUỒN DỮ LIỆU" }
         Text("${v.field.title} · $tone", style = MaterialTheme.typography.titleSmall)
+        Text("Vòng đời: ${life.lifecycle.title}${if (life.stale) " · QUÁ HẠN" else ""}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         val last = v.lastSample
         val fresh = last != null && v.status != VerificationStatus.STALE && now - last.timeMs <= 5000
         // Giá trị giải mã chỉ hiện khi còn mới; luôn kèm nhãn trạng thái. Không bao giờ hiện 0 thay cho "chưa có".

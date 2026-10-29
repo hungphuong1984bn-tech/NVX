@@ -214,6 +214,7 @@ fun AutoConnectScreen(app: AppViewModel, ble: BleViewModel, onBack: () -> Unit, 
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(onClick = { ShareFiles.share(ctx, "nvx-auto-report-${stamp()}.txt", "text/plain", ble.reportText()) }) { Text("Xuất báo cáo") }
                 OutlinedButton(onClick = { ShareFiles.share(ctx, "nvx-ble-log-${stamp()}.json", "application/json", ble.exportJson()) }) { Text("Xuất JSON") }
+                OutlinedButton(onClick = { ShareFiles.share(ctx, "nvx-events-${stamp()}.jsonl", "application/json", ble.eventLogJsonl()) }) { Text("Xuất sự kiện") }
             }
             Text("Địa chỉ được băm, tên bị che, chuỗi ASCII dài trong gói được thay bằng '*'. Không gửi log lúc đang lái.",
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

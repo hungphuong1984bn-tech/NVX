@@ -76,6 +76,7 @@ fun LinkMonitorPanel(ble: BleViewModel) {
 
     Section("Giám sát kết nối")
     Panel {
+        MonitorRowView(snap.levels.stage)
         MonitorRowView(snap.levels.bluetooth)
         MonitorRowView(snap.levels.receiving)
         MonitorRowView(snap.levels.recording)

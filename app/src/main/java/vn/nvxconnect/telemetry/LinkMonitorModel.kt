@@ -6,6 +6,9 @@ import vn.nvxconnect.protocol.LinkDiagnostics
 import vn.nvxconnect.protocol.LinkEvent
 import vn.nvxconnect.protocol.LinkEventKind
 import vn.nvxconnect.protocol.LinkHint
+import vn.nvxconnect.protocol.LinkStage
+import vn.nvxconnect.protocol.LinkStageInput
+import vn.nvxconnect.protocol.LinkStages
 import vn.nvxconnect.protocol.SubscriptionState
 import java.util.Locale
 
@@ -14,7 +17,9 @@ data class MonitorRow(val label: String, val value: String, val tone: MonitorTon
 data class MonitorSection(val title: String, val rows: List<MonitorRow>)
 
 /** Bốn mức phải được hiển thị TÁCH BẠCH. Không mức nào suy ra mức khác. */
-data class MonitorLevels(val bluetooth: MonitorRow, val receiving: MonitorRow, val recording: MonitorRow, val verified: MonitorRow)
+data class MonitorLevels(val bluetooth: MonitorRow, val receiving: MonitorRow, val recording: MonitorRow, val verified: MonitorRow,
+    /** Mức liên kết 5 bậc (CONNECTED → GATT READY → SUBSCRIPTION SUCCESS → DATA RECEIVED → PROTOCOL VERIFIED). */
+    val stage: MonitorRow = MonitorRow("Mức liên kết", "Chưa kết nối"))
 
 data class MonitorSnapshot(val levels: MonitorLevels, val sections: List<MonitorSection>)
 
@@ -24,7 +29,9 @@ data class MonitorInput(
     val readySinceNs: Long?, val nowNs: Long, val nowMs: Long,
     val capture: CaptureStats, val history: List<LinkEvent>, val diag: LinkDiagnostics,
     val invalidFrames: Long, val counterGaps: Long,
-    val verifiedFields: Int, val hypothesisFields: Int, val backgroundService: String?
+    val verifiedFields: Int, val hypothesisFields: Int, val backgroundService: String?,
+    /** true chỉ khi AdapterRegistry có adapter đã đăng ký kèm hồ sơ tương thích khớp thiết bị này. */
+    val adapterVerified: Boolean = false
 )
 
 /** Dựng bảng giám sát từ số liệu THẬT. Không có số nào được bịa: thiếu dữ liệu → "Chưa có dữ liệu". */
@@ -110,7 +117,13 @@ object LinkMonitorModel {
             MonitorRow(label, e.reason + (e.status?.let { " [mã $it]" } ?: "") + (e.upMs?.let { " · sống ${duration(it)}" } ?: "") + " · #${e.epoch}",
                 if (e.kind == LinkEventKind.READY || e.kind == LinkEventKind.BLUETOOTH_RESUMED) MonitorTone.GOOD else if (e.kind == LinkEventKind.USER_DISCONNECT) MonitorTone.NEUTRAL else MonitorTone.WARN)
         }
-        return MonitorSnapshot(MonitorLevels(bt, rx, rec, ver), listOf(
+        // Có gói thuộc PHIÊN GATT HIỆN TẠI khi gói gần nhất đến sau thời điểm Ready (đổi từ mốc đơn điệu sang giờ hệ thống).
+        val readyWallMs = i.readySinceNs?.let { i.nowMs - (i.nowNs - it) / 1_000_000 }
+        val framesThisEpoch = if (readyWallMs != null && c.lastFrameWallMs != null && c.lastFrameWallMs >= readyWallMs) 1L else 0L
+        val stageRes = LinkStages.evaluate(LinkStageInput(i.state, i.subscriptions, framesThisEpoch, i.adapterVerified, i.verifiedFields))
+        val stageRow = MonitorRow("Mức liên kết", stageRes.stage.title + (stageRes.missingForNext?.let { " — còn thiếu: $it" } ?: ""),
+            when (stageRes.stage) { LinkStage.PROTOCOL_VERIFIED -> MonitorTone.GOOD; LinkStage.DISCONNECTED -> MonitorTone.NEUTRAL; else -> MonitorTone.WARN })
+        return MonitorSnapshot(MonitorLevels(bt, rx, rec, ver, stageRow), listOf(
             MonitorSection("Liên kết", link), MonitorSection("Dịch vụ GATT", gatt), MonitorSection("Dữ liệu nhận", data),
             MonitorSection("Ghi dữ liệu", storage), MonitorSection("Lịch sử kết nối", hist.ifEmpty { listOf(MonitorRow("—", NONE)) })))
     }

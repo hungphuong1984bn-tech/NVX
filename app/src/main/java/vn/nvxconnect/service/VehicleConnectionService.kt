@@ -73,6 +73,8 @@ class VehicleConnectionService : Service() {
     override fun onDestroy() {
         job?.cancel(); scope.cancel()
         (application as? NvxApp)?.vehicleServiceHost?.reportStopped()
+        // Ghi nốt sự kiện còn trong hàng đợi (luồng riêng, không chặn luồng chính).
+        (application as? NvxApp)?.let { a -> Thread { try { a.eventLog.flushBlocking() } catch (_: Exception) {} }.start() }
         super.onDestroy()
     }
 

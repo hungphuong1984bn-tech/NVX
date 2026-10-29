@@ -53,6 +53,8 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
     // ---- thu thập/ xác minh telemetry (telemetry/): ghi payload thật, KHÔNG có đường ghi xuống xe ----
     private val recorder = RawFrameRecorder(maxRecords = getApplication<NvxApp>().proPrefs.value.logMaxRecords, anonymize = { SurveyRedactor.address(it, salt) }, anonymizeName = { SurveyRedactor.name(it) }).also { it.start("tự động") }
     private val evidence = ProtocolEvidenceRepository()
+    /** Vòng đời trường (UNAVAILABLE…VERIFIED/INVALID) suy ra từ kết luận của engine, kèm tiêu chí đã khóa để nhận biết giả thuyết bị bác bỏ. */
+    fun lifecycleOf(v: FieldVerdict): vn.nvxconnect.telemetry.FieldLifecycleState = vn.nvxconnect.telemetry.FieldLifecycles.of(v, evidence.criteriaFor(v.field.id))
     val recording = MutableStateFlow(true)
     val recStats = MutableStateFlow(RecSummary())
     val fieldVerdicts = MutableStateFlow<List<FieldVerdict>>(emptyList())
@@ -348,6 +350,7 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
             capture = a[9] as CaptureStats, history = a[7] as List<LinkEvent>, diag = a[8] as LinkDiagnostics,
             invalidFrames = ycc.invalid, counterGaps = ycc.counterGaps,
             verifiedFields = verdicts.count { it.status == VerificationStatus.VERIFIED },
+            adapterVerified = (a[0] as? ConnState.Ready)?.let { registry.find(it.services) != null } ?: false,
             hypothesisFields = verdicts.count { it.status == VerificationStatus.DECODED_HYPOTHESIS || it.status == VerificationStatus.CORRELATED },
             backgroundService = when (svc.state) {
                 vn.nvxconnect.service.ServiceState.RUNNING -> "Đang chạy nền (dịch vụ foreground)"
@@ -493,6 +496,8 @@ class BleViewModel(app: Application) : AndroidViewModel(app) {
             findings.value.map { it.level.name to (it.title + (it.detail?.let { d -> " — $d" } ?: "")) })
     }
     fun exportJson() = snapshotJson(redact = true)
+    /** Nhật ký sự kiện kết nối bền vững (JSONL; chỉ mã thiết bị ẩn danh, dòng đầu là metadata + bộ đếm mất dữ liệu). */
+    fun eventLogJsonl(): String = LogExporter.redactText(getApplication<NvxApp>().eventLog.exportJsonLines(System.currentTimeMillis()), salt)
     fun exportCsv() = LogExporter.toCsv(logBuf.snapshot(), salt, redact = true)
     fun analysisText() = FrameAnalyzer.render(FrameAnalyzer.analyze(rawFrames))
     fun clearLog() {

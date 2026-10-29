@@ -1,5 +1,8 @@
 package vn.nvxconnect.telemetry
 
+import vn.nvxconnect.protocol.FrameAssembler
+import vn.nvxconnect.protocol.KnownFramingRules
+import vn.nvxconnect.protocol.AssemblerStats
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,7 +64,7 @@ class CapturePipeline(
     }
 
     override fun onFrame(epoch: Int, charUuid: String, serviceUuid: String?, bytes: ByteArray, wallMs: Long, monoNs: Long, rssi: Int?, connState: String, indication: Boolean) {
-        if (epoch != lastEpoch) { lastEpoch = epoch; lastMono = 0; synchronized(lastPayload) { lastPayload.clear() } }   // khoảng cách giữa các gói chỉ có nghĩa trong cùng một phiên GATT
+        if (epoch != lastEpoch) { lastEpoch = epoch; lastMono = 0; synchronized(lastPayload) { lastPayload.clear() }; synchronized(assemblers) { assemblers.values.forEach { it.reset() } } }   // khoảng cách giữa các gói chỉ có nghĩa trong cùng một phiên GATT
         if (lastMono != 0L) { val gap = (monoNs - lastMono) / 1_000_000; if (gap > maxGapMs) maxGapMs = gap }
         if (lastWall != 0L && wallMs < lastWall - CLOCK_JUMP_TOLERANCE_MS) wallJumps++
         lastMono = monoNs; lastWall = wallMs; lastFrameWall = wallMs
@@ -71,7 +74,14 @@ class CapturePipeline(
         synchronized(lastPayload) { val prev = lastPayload.put(key, bytes); if (prev != null && bytes.isNotEmpty() && prev.contentEquals(bytes)) dupPayload++ }
         val src = if (indication) PayloadSource.INDICATION else PayloadSource.NOTIFICATION
         ingress.offer(CapturedFrame(ingress.nextSeq(), sessionId, epoch, wallMs, monoNs, key, serviceUuid?.lowercase(), src, rssi, connState, bytes))
+        // Quan sát song song: bộ ghép khung CHỈ cộng thống kê, không thay đổi hay thay thế payload thô đã lưu ở trên.
+        synchronized(assemblers) { assemblers.getOrPut(key) { FrameAssembler(KnownFramingRules.forChar(key)) }.feed(bytes, wallMs) }
     }
+
+    private val assemblers = HashMap<String, FrameAssembler>()
+
+    /** Thống kê khung theo characteristic (ghép/tách/bỏ byte) — để báo cáo, không phải dữ liệu xe đã xác minh. */
+    fun framingStats(): Map<String, AssemblerStats> = synchronized(assemblers) { assemblers.mapValues { it.value.stats } }
 
     fun publish() {
         val now = System.nanoTime(); val rec = ingress.received.get()
