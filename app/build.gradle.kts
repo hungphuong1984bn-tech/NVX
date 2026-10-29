@@ -5,6 +5,8 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+import java.util.Properties
+
 // Phiên bản quản lý TẬP TRUNG ở version.properties; tác vụ phát hành `releaseApk` nằm trong gradle/release.gradle.kts (xem docs/RELEASE.md).
 apply(from = rootProject.file("gradle/release.gradle.kts"))
 val nvxVersionName = extra["nvxVersionName"] as String
@@ -12,7 +14,7 @@ val nvxVersionCode = extra["nvxVersionCode"] as Int
 
 // Khóa ký phát hành: keystore.properties (storeFile, storePassword, keyAlias, keyPassword) hoặc biến môi trường NVX_KEYSTORE_FILE,
 // NVX_KEYSTORE_PASSWORD, NVX_KEY_ALIAS, NVX_KEY_PASSWORD. Muốn cập nhật đè lên bản đã cài thì PHẢI dùng cùng một khóa mọi lần.
-val nvxKeystoreProps = java.util.Properties().apply {
+val nvxKeystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties"); if (f.isFile) f.inputStream().use { load(it) }
 }
 fun nvxSigning(key: String, env: String): String? = (nvxKeystoreProps.getProperty(key) ?: System.getenv(env))?.takeIf { it.isNotBlank() }
